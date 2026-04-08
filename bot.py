@@ -3,10 +3,9 @@ import subprocess, os, sys, json, re, requests, glob
 from telegram import Update, InputMediaPhoto
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
+# 从环境变量读取（建议用 .env + 启动脚本注入）
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
-
-# bad.news cookies（过期后从 Edge 重新复制 cURL 里的 -b 内容更新）
-# 建议通过环境变量 BADNEWS_COOKIES 注入，避免明文写入仓库
+# bad.news cookies（过期后从浏览器 cURL 重新复制）
 BADNEWS_COOKIES = os.environ.get("BADNEWS_COOKIES", "")
 
 SAVE_DIR = os.path.expanduser("~/Downloads/抖音")
@@ -309,13 +308,18 @@ async def _process(update: Update, clean_url: str):
         analysis = analyze_transcript(transcript, title)
 
     title_prefix = f"视频标题：{title}\n\n" if title else ""
+    url_suffix = f"\n\n🔗 {clean_url}"
+    # caption 上限 1024，预留 url 位置，超长则截断正文
+    max_body = 1024 - len(url_suffix)
     if need_analysis and analysis:
-        vid_caption_full = title_prefix + f"梳理后的文案：\n\n{analysis}\n\n🔗 {clean_url}"
+        body = title_prefix + f"梳理后的文案：\n\n{analysis}"
     elif transcript:
-        vid_caption_full = title_prefix + f"文案：\n{transcript}\n\n🔗 {clean_url}"
+        body = title_prefix + f"文案：\n{transcript}"
     else:
-        vid_caption_full = title_prefix + f"🔗 {clean_url}"
-    vid_caption = vid_caption_full[:1024]
+        body = title_prefix.rstrip()
+    if len(body) > max_body:
+        body = body[:max_body - 1] + "…"
+    vid_caption = body + url_suffix
 
     # 发视频
     if file_size <= 50:
