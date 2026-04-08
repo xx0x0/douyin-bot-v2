@@ -287,7 +287,7 @@ async def _process(update: Update, clean_url: str):
     if run_whisper:
         # await update.message.reply_text("🎙️ 转文案中（需1-2分钟）...")
         subprocess.run(
-            ["whisper", video_path, "--language", "zh",
+            ["whisper", video_path, "--language", "zh", "--model", "turbo",
              "--output_format", "txt", "--output_dir", SAVE_DIR],
             capture_output=True
         )
