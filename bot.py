@@ -32,8 +32,10 @@ def webpage_screenshot(url, save_path_prefix, max_segments=8):
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
+        # X 用窄视口触发响应式布局，侧栏不渲染；其他站点保持宽视口
+        vp_width = 700 if is_x else 1200
         context = browser.new_context(
-            viewport={"width": 1200, "height": 1600},
+            viewport={"width": vp_width, "height": 1600},
             device_scale_factor=2,
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
                        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -70,21 +72,94 @@ def webpage_screenshot(url, save_path_prefix, max_segments=8):
                 pass
             page.wait_for_timeout(800)
 
-        # 滚动分段截图
+        # 先滚动一遍触发懒加载
         total_height = page.evaluate("document.body.scrollHeight")
         viewport_height = page.evaluate("window.innerHeight")
-        step = max(viewport_height - 80, 600)
-        segments = max(1, min(max_segments, (total_height + step - 1) // step))
+        for scroll_y in range(0, total_height, viewport_height):
+            page.evaluate(f"window.scrollTo(0, {scroll_y})")
+            page.wait_for_timeout(400)
+        # 回到顶部，重新测量高度（懒加载可能改变总高）
+        page.evaluate("window.scrollTo(0, 0)")
+        page.wait_for_timeout(300)
+        total_height = page.evaluate("document.body.scrollHeight")
 
-        for i in range(segments):
-            y = i * step
-            page.evaluate(f"window.scrollTo(0, {y})")
-            page.wait_for_timeout(600)
-            seg_path = f"{save_path_prefix}_{i+1}.png"
-            page.screenshot(path=seg_path, full_page=False)
-            paths.append(seg_path)
+        # 整页截图，然后用 PIL 精确切分（零重叠零遗漏）
+        full_path = f"{save_path_prefix}_full.png"
+        page.screenshot(path=full_path, full_page=True)
+
+        # 提取页面中的内容图片（过滤掉头像/图标等小图）
+        image_urls = page.evaluate("""() => {
+            const imgs = document.querySelectorAll('img');
+            const urls = [];
+            const seen = new Set();
+            for (const img of imgs) {
+                const src = img.src || img.getAttribute('data-src') || '';
+                if (!src || src.startsWith('data:')) continue;
+                // 跳过头像、图标等小图（自然尺寸 < 200px）
+                if (img.naturalWidth > 0 && img.naturalWidth < 200) continue;
+                if (img.naturalHeight > 0 && img.naturalHeight < 200) continue;
+                // X/Twitter 内容图片特征
+                const isXMedia = src.includes('pbs.twimg.com/media');
+                // 通用内容图片：尺寸足够大
+                const isBigEnough = img.naturalWidth >= 400 || img.naturalHeight >= 400;
+                if ((isXMedia || isBigEnough) && !seen.has(src)) {
+                    seen.add(src);
+                    urls.push(src);
+                }
+            }
+            return urls;
+        }""")
+
+        # 下载提取到的图片
+        for idx, img_url in enumerate(image_urls[:10]):
+            try:
+                img_path = f"{save_path_prefix}_img{idx+1}.jpg"
+                resp = page.request.get(img_url)
+                if resp.ok:
+                    with open(img_path, "wb") as f:
+                        f.write(resp.body())
+                    paths.append(img_path)
+            except Exception as e:
+                print(f"[提取图片失败] {img_url}: {e}")
 
         browser.close()
+
+    # PIL 切分整页截图（device_scale_factor=2，实际像素是 CSS 像素的 2 倍）
+    dpr = 2
+    seg_pixel_h = viewport_height * dpr  # 每段像素高度 = 视口高 × DPR
+    try:
+        full_img = Image.open(full_path)
+        fw, fh = full_img.size
+        if fh <= seg_pixel_h:
+            # 整页不超过一个视口，直接作为一张
+            seg_path = f"{save_path_prefix}_1.png"
+            full_img.save(seg_path)
+            paths.insert(0, seg_path)
+        else:
+            idx = 0
+            for top in range(0, fh, seg_pixel_h):
+                bottom = min(fh, top + seg_pixel_h)
+                # 最后一片太薄（< 15% 视口），合并到上一片
+                if idx > 0 and (bottom - top) < seg_pixel_h * 0.15:
+                    break
+                crop = full_img.crop((0, top, fw, bottom))
+                seg_path = f"{save_path_prefix}_{idx+1}.png"
+                crop.save(seg_path)
+                paths.insert(idx, seg_path)
+                idx += 1
+                if idx >= max_segments:
+                    break
+        full_img.close()
+    except Exception as e:
+        print(f"[PIL 切分失败，回退整图] {e}")
+        paths.insert(0, full_path)
+        full_path = None  # 不删除
+    if full_path:
+        try:
+            os.remove(full_path)
+        except Exception:
+            pass
+
     return paths, title
 
 
@@ -416,10 +491,12 @@ async def _process(update: Update, clean_url: str):
             video_url = info.get("video_url") or info.get("download_url") or info.get("url", "")
             title = info.get("title") or info.get("desc", "")
         except Exception as e:
-            await update.message.reply_text(f"❌ 获取失败：{e}")
+            # 提取失败，回退到截图
+            await _process_article(update, clean_url)
             return
         if not video_url:
-            await update.message.reply_text("❌ 无法获取视频链接")
+            # 无视频链接，回退到截图
+            await _process_article(update, clean_url)
             return
         subprocess.run(["yt-dlp", "-o", video_path, video_url], capture_output=True)
 
