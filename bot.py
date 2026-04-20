@@ -297,6 +297,44 @@ def analyze_transcript(transcript, title):
     except:
         return ""
 
+class SafeMessage:
+    """包装 Message，所有 reply_* 调用在原消息被删时自动回退到直发"""
+    def __init__(self, msg):
+        self._msg = msg
+        self._bot = msg.get_bot()
+        self._cid = msg.chat.id
+
+    def __getattr__(self, name):
+        return getattr(self._msg, name)
+
+    async def _fallback(self, method, fallback, *args, **kwargs):
+        import asyncio
+        for attempt in range(3):
+            try:
+                return await method(*args, **kwargs)
+            except Exception as e:
+                err = str(e).lower()
+                if "not found" in err:
+                    return await fallback(chat_id=self._cid, *args, **kwargs)
+                if ("timed out" in err or "timeout" in err) and attempt < 2:
+                    print(f"[超时重试 {attempt+1}/2]")
+                    await asyncio.sleep(3)
+                    continue
+                raise
+
+    async def reply_text(self, *a, **kw):
+        return await self._fallback(self._msg.reply_text, self._bot.send_message, *a, **kw)
+
+    async def reply_video(self, *a, **kw):
+        return await self._fallback(self._msg.reply_video, self._bot.send_video, *a, **kw)
+
+    async def reply_photo(self, *a, **kw):
+        return await self._fallback(self._msg.reply_photo, self._bot.send_photo, *a, **kw)
+
+    async def reply_media_group(self, *a, **kw):
+        return await self._fallback(self._msg.reply_media_group, self._bot.send_media_group, *a, **kw)
+
+
 async def handle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
@@ -308,7 +346,10 @@ async def handle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if chat_id != ALLOWED_GROUP and user.id != ALLOWED_USER:
         return
 
-    raw = update.message.text.strip()
+    # 包装 message，原消息被删时所有 reply_* 自动回退到直发
+    msg = SafeMessage(update.message)
+
+    raw = msg.text.strip()
 
     # 从消息中提取链接
     url_match = re.search(r"https?://\S+", raw)
@@ -325,12 +366,12 @@ async def handle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not any(x in text for x in PLATFORMS):
         if is_article_url(text):
             try:
-                await _process_article(update, text)
+                await _process_article(msg, text)
             except Exception as e:
                 print(f"[ERROR article] {e}")
                 import traceback; traceback.print_exc()
                 try:
-                    await update.message.reply_text(f"❌ 文章截图失败：{e}")
+                    await msg.reply_text(f"❌ 文章截图失败：{e}")
                 except:
                     pass
         return
@@ -350,25 +391,25 @@ async def handle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             pass
 
     try:
-        await _process(update, clean_url)
+        await _process(msg, clean_url)
     except Exception as e:
         print(f"[ERROR] {e}")
         import traceback; traceback.print_exc()
         try:
-            await update.message.reply_text(f"❌ 出错了：{e}")
+            await msg.reply_text(f"❌ 出错了：{e}")
         except:
             pass
 
-async def _process_article(update: Update, url: str):
+async def _process_article(msg, url: str):
     """文章链接：滚动分段截图，作为相册发送（更清晰）"""
-    await update.message.reply_text("📸 正在截取网页...")
+    await msg.reply_text("📸 正在截取网页...")
     prefix = f"{SAVE_DIR}/article_{abs(hash(url))}"
     import asyncio
     loop = asyncio.get_event_loop()
     paths, title = await loop.run_in_executor(None, webpage_screenshot, url, prefix)
     paths = [p for p in paths if os.path.exists(p)]
     if not paths:
-        await update.message.reply_text(f"❌ 截图失败\n🔗 {url}")
+        await msg.reply_text(f"❌ 截图失败\n🔗 {url}")
         return
     # 规范化尺寸，防止 Telegram Photo_invalid_dimensions
     paths = normalize_for_telegram(paths)
@@ -385,7 +426,7 @@ async def _process_article(update: Update, url: str):
                 photos.append(f.read())
 
         if len(photos) == 1:
-            await update.message.reply_photo(photo=photos[0], caption=caption)
+            await msg.reply_photo(photo=photos[0], caption=caption)
         else:
             # 分组发送（每组最多 10 张），caption 放最后一组最后一张
             CHUNK = 10
@@ -394,7 +435,7 @@ async def _process_article(update: Update, url: str):
                 media = [InputMediaPhoto(media=b) for b in group]
                 if idx == len(groups) - 1:
                     media[-1] = InputMediaPhoto(media=group[-1], caption=caption)
-                await update.message.reply_media_group(media=media)
+                await msg.reply_media_group(media=media)
     finally:
         for p in paths:
             try:
@@ -403,20 +444,20 @@ async def _process_article(update: Update, url: str):
                 pass
 
 
-async def _process(update: Update, clean_url: str):
+async def _process(msg, clean_url: str):
     # 图文提取
     if "/note/" in clean_url:
-        await update.message.reply_text("⏳ 处理中，请稍候...")
+        await msg.reply_text("⏳ 处理中，请稍候...")
         try:
             result = get_douyin_download_link(clean_url)
             info = json.loads(result)
             if info.get("status") == "error":
-                await update.message.reply_text(f"❌ 提取失败：{info.get('error', '未知错误')}")
+                await msg.reply_text(f"❌ 提取失败：{info.get('error', '未知错误')}")
                 return
             title = info.get("title", "")
             images = info.get("images", [])
             if not images:
-                await update.message.reply_text(f"❌ 未能提取到图片，请手动保存\n🔗 {clean_url}")
+                await msg.reply_text(f"❌ 未能提取到图片，请手动保存\n🔗 {clean_url}")
                 return
             caption_text = (f"{title}\n\n" if title else "") + f"🔗 {clean_url}"
             photo_data = []
@@ -429,19 +470,19 @@ async def _process(update: Update, clean_url: str):
                 except Exception as img_e:
                     print(f"[图片下载失败] {img_url}: {img_e}")
             if not photo_data:
-                await update.message.reply_text(f"❌ 未能下载到图片\n🔗 {clean_url}")
+                await msg.reply_text(f"❌ 未能下载到图片\n🔗 {clean_url}")
                 return
             media_group = [InputMediaPhoto(media=d) for d in photo_data]
             media_group[-1] = InputMediaPhoto(media=photo_data[-1], caption=caption_text[:1024])
-            await update.message.reply_media_group(media=media_group)
+            await msg.reply_media_group(media=media_group)
         except Exception as e:
             print(f"[ERROR 图文] {e}")
-            await update.message.reply_text(f"❌ 图文提取失败：{e}\n🔗 {clean_url}")
+            await msg.reply_text(f"❌ 图文提取失败：{e}\n🔗 {clean_url}")
         return
 
-    # await update.message.reply_text("⏬ 获取视频中...")
+    # await msg.reply_text("⏬ 获取视频中...")
 
-    await update.message.reply_text("⏳ 处理中，请稍候...")
+    await msg.reply_text("⏳ 处理中，请稍候...")
 
     video_path = f"{SAVE_DIR}/video_{abs(hash(clean_url))}.mp4"
     title = ""
@@ -470,18 +511,18 @@ async def _process(update: Update, clean_url: str):
             if not vid_match:
                 vid_match = re.search(r'href="(https://[^"]+\.mp4[^"]*)"', resp.text)
             if not vid_match:
-                await update.message.reply_text("❌ 无法提取视频链接，cookies 可能已过期")
+                await msg.reply_text("❌ 无法提取视频链接，cookies 可能已过期")
                 return
             video_dl_url = vid_match.group(1)
             r2 = requests.get(video_dl_url, headers=dl_hdrs, stream=True, timeout=60)
             if r2.status_code != 200:
-                await update.message.reply_text(f"❌ 视频下载失败：HTTP {r2.status_code}")
+                await msg.reply_text(f"❌ 视频下载失败：HTTP {r2.status_code}")
                 return
             with open(video_path, 'wb') as f:
                 for chunk in r2.iter_content(chunk_size=65536):
                     f.write(chunk)
         except Exception as e:
-            await update.message.reply_text(f"❌ bad.news 下载失败：{e}")
+            await msg.reply_text(f"❌ bad.news 下载失败：{e}")
             return
 
     elif is_douyin:
@@ -492,11 +533,11 @@ async def _process(update: Update, clean_url: str):
             title = info.get("title") or info.get("desc", "")
         except Exception as e:
             # 提取失败，回退到截图
-            await _process_article(update, clean_url)
+            await _process_article(msg, clean_url)
             return
         if not video_url:
             # 无视频链接，回退到截图
-            await _process_article(update, clean_url)
+            await _process_article(msg, clean_url)
             return
         subprocess.run(["yt-dlp", "-o", video_path, video_url], capture_output=True)
 
@@ -525,13 +566,13 @@ async def _process(update: Update, clean_url: str):
         if dl.returncode != 0:
             # 下载失败（可能是纯文字/图片推文），回退到截图
             if is_x or "weibo.com" in clean_url:
-                await _process_article(update, clean_url)
+                await _process_article(msg, clean_url)
                 return
-            await update.message.reply_text(f"❌ 下载失败：{dl.stderr[-300:]}")
+            await msg.reply_text(f"❌ 下载失败：{dl.stderr[-300:]}")
             return
 
     if not os.path.exists(video_path):
-        await update.message.reply_text("❌ 视频下载失败")
+        await msg.reply_text("❌ 视频下载失败")
         return
 
     # bad.news 是成人内容，跳过文案提取，直接发视频
@@ -549,9 +590,9 @@ async def _process(update: Update, clean_url: str):
                 if len(parts) == 2:
                     w, h = int(parts[0]), int(parts[1])
             with open(video_path, "rb") as vf:
-                await update.message.reply_video(video=vf, width=w or None, height=h or None, supports_streaming=True)
+                await msg.reply_video(video=vf, width=w or None, height=h or None, supports_streaming=True)
         else:
-            await update.message.reply_text(
+            await msg.reply_text(
                 f"⚠️ 视频过大（{file_size:.1f}MB），超过 Telegram 50MB 限制，请到本地手动提取\n📁 {video_path}"
             )
         return
@@ -582,7 +623,7 @@ async def _process(update: Update, clean_url: str):
             run_whisper = False
 
     if run_whisper:
-        # await update.message.reply_text("🎙️ 转文案中（需1-2分钟）...")
+        # await msg.reply_text("🎙️ 转文案中（需1-2分钟）...")
         subprocess.run(
             ["whisper", video_path, "--language", "zh", "--model", "turbo",
              "--output_format", "txt", "--output_dir", SAVE_DIR,
@@ -637,10 +678,10 @@ async def _process(update: Update, clean_url: str):
             if len(parts) == 2:
                 w, h = int(parts[0]), int(parts[1])
         with open(video_path, "rb") as vf:
-            await update.message.reply_video(video=vf, width=w or None, height=h or None,
+            await msg.reply_video(video=vf, width=w or None, height=h or None,
                                               caption=vid_caption, supports_streaming=True)
     else:
-        await update.message.reply_text(
+        await msg.reply_text(
             f"⚠️ 视频过大（{file_size:.1f}MB），超过 Telegram 50MB 限制，请到本地手动提取\n📁 {video_path}"
         )
 
@@ -648,17 +689,17 @@ async def _process(update: Update, clean_url: str):
     if need_analysis and analysis:
         full_text = title_prefix + f"原文案：\n{transcript}\n\n🔗 {clean_url}"
         while full_text:
-            await update.message.reply_text(full_text[:4000])
+            await msg.reply_text(full_text[:4000])
             full_text = full_text[4000:]
     elif need_analysis and not analysis:
         # 梳理失败：回退发原文案
-        await update.message.reply_text("⚠️ AI 梳理失败，请检查 Ollama 是否运行")
+        await msg.reply_text("⚠️ AI 梳理失败，请检查 Ollama 是否运行")
         full_text = title_prefix + f"文案：\n{transcript}\n\n🔗 {clean_url}"
         while full_text:
-            await update.message.reply_text(full_text[:4000])
+            await msg.reply_text(full_text[:4000])
             full_text = full_text[4000:]
 
-app = ApplicationBuilder().token(BOT_TOKEN).read_timeout(300).write_timeout(300).connect_timeout(300).build()
+app = ApplicationBuilder().token(BOT_TOKEN).read_timeout(300).write_timeout(600).connect_timeout(60).build()
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 import logging
 logging.getLogger("httpx").setLevel(logging.WARNING)
