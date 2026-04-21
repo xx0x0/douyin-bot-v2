@@ -5,9 +5,8 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTyp
 from playwright.sync_api import sync_playwright
 from PIL import Image
 
-# 从环境变量读取（建议用 .env + 启动脚本注入）
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
-# bad.news cookies（过期后从浏览器 cURL 重新复制）
+# 从环境变量读取（由 run.sh 加载 .env 注入）
+BOT_TOKEN = os.environ["BOT_TOKEN"]
 BADNEWS_COOKIES = os.environ.get("BADNEWS_COOKIES", "")
 
 SAVE_DIR = os.path.expanduser("~/Downloads/抖音")
@@ -15,8 +14,8 @@ DOUYIN_MCP = os.path.expanduser("~/douyin-mcp-server")
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # 白名单：只响应指定用户私聊 + 指定群
-ALLOWED_USER = int(os.environ.get("ALLOWED_USER", "12345678"))         # 替换成你的 Telegram 用户 ID
-ALLOWED_GROUP = int(os.environ.get("ALLOWED_GROUP", "-1001234567890")) # 替换成你的群 ID
+ALLOWED_USER = int(os.environ["ALLOWED_USER"])
+ALLOWED_GROUP = int(os.environ["ALLOWED_GROUP"])
 
 sys.path.insert(0, DOUYIN_MCP)
 from douyin_mcp_server.server import get_douyin_download_link
@@ -655,15 +654,13 @@ async def _process(msg, clean_url: str):
     url_suffix = f"\n\n🔗 {clean_url}"
     # caption 上限 1024，预留 url 位置，超长则截断正文
     max_body = 1024 - len(url_suffix)
-    if need_analysis and analysis:
-        body = title_prefix + f"梳理后的文案：\n\n{analysis}"
-    elif transcript:
-        body = title_prefix + f"文案：\n{transcript}"
+    # 视频 caption 只放标题+链接（1024字上限太小放不下梳理）
+    if transcript:
+        vid_caption = title_prefix.rstrip() + url_suffix
     else:
-        body = title_prefix.rstrip()
-    if len(body) > max_body:
-        body = body[:max_body - 1] + "…"
-    vid_caption = body + url_suffix
+        vid_caption = title_prefix.rstrip() + url_suffix
+    if len(vid_caption) > 1024:
+        vid_caption = vid_caption[:1023] + "…"
 
     # 发视频
     if file_size <= 50:
@@ -685,15 +682,26 @@ async def _process(msg, clean_url: str):
             f"⚠️ 视频过大（{file_size:.1f}MB），超过 Telegram 50MB 限制，请到本地手动提取\n📁 {video_path}"
         )
 
-    # 用了 AI 梳理：原文案单独发一条
+    # 文案单独发：梳理结果 → 原文案，都是独立消息，不会被 caption 截断
     if need_analysis and analysis:
+        # 先发梳理结果
+        summary_text = title_prefix + f"📝 AI 梳理：\n\n{analysis}\n\n🔗 {clean_url}"
+        while summary_text:
+            await msg.reply_text(summary_text[:4000])
+            summary_text = summary_text[4000:]
+        # 再发原文案
         full_text = title_prefix + f"原文案：\n{transcript}\n\n🔗 {clean_url}"
         while full_text:
             await msg.reply_text(full_text[:4000])
             full_text = full_text[4000:]
     elif need_analysis and not analysis:
-        # 梳理失败：回退发原文案
         await msg.reply_text("⚠️ AI 梳理失败，请检查 Ollama 是否运行")
+        full_text = title_prefix + f"文案：\n{transcript}\n\n🔗 {clean_url}"
+        while full_text:
+            await msg.reply_text(full_text[:4000])
+            full_text = full_text[4000:]
+    elif transcript:
+        # 不需要梳理（<800字），直接发文案
         full_text = title_prefix + f"文案：\n{transcript}\n\n🔗 {clean_url}"
         while full_text:
             await msg.reply_text(full_text[:4000])
