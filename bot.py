@@ -447,11 +447,21 @@ async def _process(msg, clean_url: str):
     # 图文提取
     if "/note/" in clean_url:
         await msg.reply_text("⏳ 处理中，请稍候...")
+        info = None
+        for _attempt in range(3):
+            try:
+                result = get_douyin_download_link(clean_url)
+                info = json.loads(result)
+                if info.get("status") != "error":
+                    break
+                print(f"[抖音图文提取重试 {_attempt+1}/3] {info.get('error')}")
+            except Exception as e:
+                print(f"[抖音图文提取重试 {_attempt+1}/3] {e}")
+            if _attempt < 2:
+                await asyncio.sleep(2 * (_attempt + 1))
         try:
-            result = get_douyin_download_link(clean_url)
-            info = json.loads(result)
-            if info.get("status") == "error":
-                await msg.reply_text(f"❌ 提取失败：{info.get('error', '未知错误')}")
+            if info is None or info.get("status") == "error":
+                await msg.reply_text(f"❌ 提取失败：{info.get('error', '未知错误') if info else '网络异常'}")
                 return
             title = info.get("title", "")
             images = info.get("images", [])
