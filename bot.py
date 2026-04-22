@@ -443,6 +443,35 @@ async def _process_article(msg, url: str):
                 pass
 
 
+def _compress_video(src: str, target_mb: float = 49.0) -> str:
+    """用 ffmpeg 压缩视频到目标大小以内，返回压缩后路径"""
+    import subprocess as sp
+    # 获取视频时长
+    probe = sp.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", src],
+        capture_output=True, text=True
+    )
+    duration = float(probe.stdout.strip())
+    # 目标总码率(kbps)，预留音频 128k
+    target_total_bitrate = int(target_mb * 8 * 1024 / duration)
+    video_bitrate = max(target_total_bitrate - 128, 200)
+    dst = src.rsplit(".", 1)[0] + "_compressed.mp4"
+    sp.run([
+        "ffmpeg", "-y", "-i", src,
+        "-c:v", "libx264", "-b:v", f"{video_bitrate}k",
+        "-c:a", "aac", "-b:a", "128k",
+        "-preset", "fast", "-movflags", "+faststart",
+        dst
+    ], capture_output=True)
+    if os.path.exists(dst) and os.path.getsize(dst) < target_mb * 1024 * 1024:
+        return dst
+    # 压缩失败或仍然太大
+    if os.path.exists(dst):
+        os.remove(dst)
+    return ""
+
+
 async def _process(msg, clean_url: str):
     # 图文提取
     if "/note/" in clean_url:
