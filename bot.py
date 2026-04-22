@@ -443,9 +443,11 @@ async def _process_article(msg, url: str):
                 pass
 
 
-def _compress_video(src: str, target_mb: float = 49.0) -> str:
-    """用 ffmpeg 压缩视频到目标大小以内，返回压缩后路径"""
+def _compress_video(src: str, target_mb: float = 49.0, max_src_mb: float = 200.0) -> str:
+    """用 ffmpeg 压缩视频到目标大小以内，超过 max_src_mb 的不压（会太糊）"""
     import subprocess as sp
+    if os.path.getsize(src) / (1024 * 1024) > max_src_mb:
+        return ""
     # 获取视频时长
     probe = sp.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
