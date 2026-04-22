@@ -625,23 +625,30 @@ async def _process(msg, clean_url: str):
     # bad.news 是成人内容，跳过文案提取，直接发视频
     if is_badnews:
         file_size = os.path.getsize(video_path) / (1024 * 1024)
-        if file_size <= 50:
-            import subprocess as sp
-            probe = sp.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
-                            "-show_entries", "stream=width,height",
-                            "-of", "csv=p=0", video_path],
-                           capture_output=True, text=True)
-            w, h = 0, 0
-            if probe.stdout.strip():
-                parts = probe.stdout.strip().split(",")
-                if len(parts) == 2:
-                    w, h = int(parts[0]), int(parts[1])
-            with open(video_path, "rb") as vf:
-                await msg.reply_video(video=vf, width=w or None, height=h or None, supports_streaming=True)
-        else:
-            await msg.reply_text(
-                f"⚠️ 视频过大（{file_size:.1f}MB），超过 Telegram 50MB 限制，请到本地手动提取\n📁 {video_path}"
-            )
+        send_path = video_path
+        if file_size > 50:
+            compressed = _compress_video(video_path)
+            if compressed:
+                send_path = compressed
+            else:
+                await msg.reply_text(
+                    f"⚠️ 视频过大（{file_size:.1f}MB），压缩失败，请到本地手动提取\n📁 {video_path}"
+                )
+                return
+        import subprocess as sp
+        probe = sp.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
+                        "-show_entries", "stream=width,height",
+                        "-of", "csv=p=0", send_path],
+                       capture_output=True, text=True)
+        w, h = 0, 0
+        if probe.stdout.strip():
+            parts = probe.stdout.strip().split(",")
+            if len(parts) == 2:
+                w, h = int(parts[0]), int(parts[1])
+        with open(send_path, "rb") as vf:
+            await msg.reply_video(video=vf, width=w or None, height=h or None, supports_streaming=True)
+        if send_path != video_path and os.path.exists(send_path):
+            os.remove(send_path)
         return
 
     # 所有平台：先转文案，再发视频
