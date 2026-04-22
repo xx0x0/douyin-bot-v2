@@ -525,15 +525,24 @@ async def _process(msg, clean_url: str):
             return
 
     elif is_douyin:
-        try:
-            result = get_douyin_download_link(clean_url)
-            info = json.loads(result)
-            video_url = info.get("video_url") or info.get("download_url") or info.get("url", "")
-            title = info.get("title") or info.get("desc", "")
-        except Exception as e:
-            # 提取失败，回退到截图
-            await _process_article(msg, clean_url)
-            return
+        video_url = ""
+        title = ""
+        for _attempt in range(3):
+            try:
+                result = get_douyin_download_link(clean_url)
+                info = json.loads(result)
+                video_url = info.get("video_url") or info.get("download_url") or info.get("url", "")
+                title = info.get("title") or info.get("desc", "")
+                if video_url:
+                    break
+            except Exception as e:
+                print(f"[抖音提取重试 {_attempt+1}/3] {e}")
+                if _attempt < 2:
+                    await asyncio.sleep(2 * (_attempt + 1))
+                    continue
+                # 最终失败，回退到截图
+                await _process_article(msg, clean_url)
+                return
         if not video_url:
             # 无视频链接，回退到截图
             await _process_article(msg, clean_url)
