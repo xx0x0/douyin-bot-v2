@@ -545,12 +545,12 @@ async def _process(msg, clean_url: str):
                 title = info.get("title") or info.get("desc", "")
                 if video_url:
                     break
+                print(f"[抖音提取重试 {_attempt+1}/3] 无视频链接")
             except Exception as e:
                 print(f"[抖音提取重试 {_attempt+1}/3] {e}")
-                if _attempt < 2:
-                    await asyncio.sleep(2 * (_attempt + 1))
-                    continue
-                # 最终失败，回退到截图
+            if _attempt < 2:
+                await asyncio.sleep(2 * (_attempt + 1))
+            elif not video_url:
                 await _process_article(msg, clean_url)
                 return
         if not video_url:
