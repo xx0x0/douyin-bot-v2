@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import subprocess, os, sys, json, re, requests, glob
+import subprocess, os, sys, json, re, requests, glob, asyncio
 from telegram import Update, InputMediaPhoto
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 from playwright.sync_api import sync_playwright
