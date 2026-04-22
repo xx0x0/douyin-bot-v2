@@ -634,7 +634,7 @@ async def _process(msg, clean_url: str):
                 send_path = compressed
             else:
                 await msg.reply_text(
-                    f"⚠️ 视频过大（{file_size:.1f}MB），压缩失败，请到本地手动提取\n📁 {video_path}"
+                    f"⚠️ 视频过大（{file_size:.1f}MB），超过 200MB 不压缩，请到本地手动提取\n📁 {video_path}"
                 )
                 return
         import subprocess as sp
@@ -727,7 +727,7 @@ async def _process(msg, clean_url: str):
             send_path = compressed
         else:
             await msg.reply_text(
-                f"⚠️ 视频过大（{file_size:.1f}MB），压缩失败，请到本地手动提取\n📁 {video_path}"
+                f"⚠️ 视频过大（{file_size:.1f}MB），超过 200MB 不压缩，请到本地手动提取\n📁 {video_path}"
             )
             send_path = ""
     if send_path:
