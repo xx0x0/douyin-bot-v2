@@ -112,18 +112,27 @@ printf '# Netscape HTTP Cookie File\n.x.com\tTRUE\t/\tTRUE\t2147483647\tauth_tok
 
 ### 7. 配置并启动
 
-编辑 `bot.py`，填入：
-- `BOT_TOKEN` — 你的 Telegram Bot Token
-- `ALLOWED_USER` — 允许私聊的 Telegram 用户 ID（多个用逗号分隔，例如 `123,456,789`）
-- `ALLOWED_GROUP` — 允许响应的群 ID（多个用逗号分隔，例如 `-100123,-100456`）
+复制配置模板并填入你自己的值：
 
 ```bash
-mkdir -p ~/douyin-bot
-cp bot.py ~/douyin-bot/bot.py
-/opt/homebrew/bin/python3.11 ~/douyin-bot/bot.py
+cp .env.example .env
+# 用编辑器打开 .env，填入：
+#   BOT_TOKEN        — 从 @BotFather 拿到的 token
+#   ALLOWED_USER     — 允许私聊的用户 ID（多个用英文逗号分隔）
+#   ALLOWED_GROUP    — 允许响应的群 ID（多个用英文逗号分隔）
+#   BADNEWS_COOKIES  — 可选，巴比馒头官网 Cookie
 ```
 
-> **如果运行失败**，检查 `bot.py` 里的路径是否与实际文件位置一致，修改后重新运行即可。
+启动：
+
+```bash
+chmod +x run.sh    # 首次运行赋予可执行权限
+./run.sh           # 自动加载 .env 后启动 bot.py
+```
+
+> **`run.sh` 做了什么：** 检查 `.env` 是否存在 → `source .env` 注入环境变量 → 用 `python3.11` 跑 `bot.py`。
+>
+> **如果运行失败**，检查 `bot.py` 里的路径（`SAVE_DIR`、`DOUYIN_MCP`）是否与实际文件位置一致，以及 `.env` 是否填全。
 
 ---
 
