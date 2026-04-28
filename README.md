@@ -229,6 +229,14 @@ launchctl load ~/Library/LaunchAgents/com.douyin.bot.plist
 
 ## 📜 更新日志
 
+### 2026-04-29
+- 🆕 **README 顶部新增「快速启动」5 行命令** — clone → 复制 .env.example → 改密 → `./run.sh`，对照即可跑
+- 🆕 **新增 `.env.example` 模板** — 配置项 + 注释一目了然，含获取 user ID / 群 ID 的方法
+- 🆕 **新增 `run.sh` 启动脚本** — 自动加载 `.env` 后启动 bot，免手动 `export`
+- 🔧 **白名单支持多用户 + 多群组** — `ALLOWED_USER` / `ALLOWED_GROUP` 改为支持英文逗号分隔多个 ID，bot.py 内部用 set 判断
+- 🔧 **`.gitignore` 追加 `*.log`** — 避免 `bot.log` 等运行时日志意外入库
+- 📝 **README 启动章节重写** — 从「编辑 bot.py 填值 + python3 bot.py」改为「复制 .env.example → 填值 + ./run.sh」，与代码实际行为一致
+
 ### 2026-04-22
 - 🔧 **抖音提取自动重试** — 网络抖动不再直接失败，自动重试 3 次（递增等待 2s→4s），长时间挂机更稳定
 - 🆕 **超 50MB 视频自动压缩** — 50~200MB 视频用 ffmpeg 自动压缩到 50MB 以内再发送，超过 200MB 才提示手动提取
