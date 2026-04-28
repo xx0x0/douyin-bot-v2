@@ -14,7 +14,7 @@ DOUYIN_MCP = os.path.expanduser("~/douyin-mcp-server")
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # 白名单：只响应指定用户私聊 + 指定群
-ALLOWED_USER = int(os.environ["ALLOWED_USER"])
+ALLOWED_USERS = {int(x) for x in os.environ["ALLOWED_USER"].split(",") if x.strip()}
 ALLOWED_GROUP = int(os.environ["ALLOWED_GROUP"])
 
 sys.path.insert(0, DOUYIN_MCP)
