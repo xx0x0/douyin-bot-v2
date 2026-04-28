@@ -15,9 +15,7 @@
 
 **变更：** 把白名单从「单用户 + 单群」改成「多用户 + 多群」，配置项继续叫 `ALLOWED_USER` / `ALLOWED_GROUP`，但值用逗号分隔。
 
-**.env：**
-- `ALLOWED_USER` 增至 4 人：`***,***,***,***`
-- `ALLOWED_GROUP` 增至 2 个群：`***,***`
+**.env：** `ALLOWED_USER` 扩展为多个用户 ID（逗号分隔），`ALLOWED_GROUP` 扩展为多个群 ID（逗号分隔）。具体值见本地 `.env`（不入库）。
 
 **bot.py：**
 - `ALLOWED_USER` → `ALLOWED_USERS`（set），`ALLOWED_GROUP` → `ALLOWED_GROUPS`（set）
