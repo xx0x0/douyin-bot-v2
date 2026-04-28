@@ -342,7 +342,7 @@ async def handle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     chat_id = update.message.chat.id
     print(f"收到消息 - 用户：{user.username or user.first_name}（ID:{user.id}）群：{chat_id}")
-    if chat_id != ALLOWED_GROUP and user.id not in ALLOWED_USERS:
+    if chat_id not in ALLOWED_GROUPS and user.id not in ALLOWED_USERS:
         return
 
     # 包装 message，原消息被删时所有 reply_* 自动回退到直发
