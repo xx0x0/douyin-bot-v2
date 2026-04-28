@@ -14,7 +14,7 @@ chmod +x run.sh
 ./run.sh
 ```
 
-> **首次运行前**还需要按下方完整教程安装 Python 依赖、playwright、ffmpeg、Whisper、Ollama 等环境。详情见 [#📦 完整安装步骤](#-完整安装步骤)。
+> **首次运行前**还需要按下方完整教程安装 Python 依赖、playwright、ffmpeg、Whisper、Ollama 等环境。详情见下方「🚀 安装步骤」一节。
 
 ---
 
