@@ -114,7 +114,7 @@ printf '# Netscape HTTP Cookie File\n.x.com\tTRUE\t/\tTRUE\t2147483647\tauth_tok
 
 编辑 `bot.py`，填入：
 - `BOT_TOKEN` — 你的 Telegram Bot Token
-- `ALLOWED_USER` — 你的 Telegram 用户 ID
+- `ALLOWED_USER` — 允许私聊的 Telegram 用户 ID（多个用逗号分隔，例如 `123,456,789`）
 - `ALLOWED_GROUP` — 允许响应的群 ID
 
 ```bash
