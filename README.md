@@ -1,8 +1,20 @@
-# douyin-bot
-抖音/X 视频文案提取 Telegram Bot 一个运行在本地 Mac 上的 Telegram Bot，支持抖音、X(Twitter)、YouTube、B站等平台的视频下载和文案提取，完全免费，数据不上云。 本地 AI 模型梳理总结长文案 
 # 抖音/X 视频文案提取 Telegram Bot
 
 一个运行在本地 Mac 上的 Telegram Bot，支持抖音、X(Twitter)、YouTube、B站等平台的视频下载和文案提取，完全免费，数据不上云。
+
+---
+
+## 🚀 快速启动
+
+```bash
+git clone https://github.com/xx0x0/douyin-bot-v2.git
+cd douyin-bot-v2
+cp .env.example .env       # 编辑 .env 填 BOT_TOKEN / ALLOWED_USER / ALLOWED_GROUP
+chmod +x run.sh
+./run.sh
+```
+
+> **首次运行前**还需要按下方完整教程安装 Python 依赖、playwright、ffmpeg、Whisper、Ollama 等环境。详情见 [#📦 完整安装步骤](#-完整安装步骤)。
 
 ---
 
