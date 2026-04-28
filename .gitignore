@@ -3,6 +3,7 @@ __pycache__/
 *.pyo
 .env
 *.save
+*.log
 x-cookies.txt
 *.mp4
 *.wav
