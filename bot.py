@@ -709,11 +709,14 @@ async def _process(msg, clean_url: str):
 
     title_prefix = f"视频标题：{title}\n\n" if title else ""
     url_suffix = f"\n\n🔗 {clean_url}"
-    # caption 上限 1024，预留 url 位置，超长则截断正文
-    max_body = 1024 - len(url_suffix)
-    # 视频 caption 只放标题+链接（1024字上限太小放不下梳理）
-    if transcript:
-        vid_caption = title_prefix.rstrip() + url_suffix
+    # 视频 caption：尽量塞 标题 + 梳理 + 链接；放不下就只放 标题 + 链接，梳理走独立消息
+    caption_with_summary = ""
+    if need_analysis and analysis:
+        candidate = title_prefix + f"📝 AI 梳理：\n\n{analysis}" + url_suffix
+        if len(candidate) <= 1024:
+            caption_with_summary = candidate
+    if caption_with_summary:
+        vid_caption = caption_with_summary
     else:
         vid_caption = title_prefix.rstrip() + url_suffix
     if len(vid_caption) > 1024:
