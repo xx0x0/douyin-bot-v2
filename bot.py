@@ -750,13 +750,14 @@ async def _process(msg, clean_url: str):
         if send_path != video_path and os.path.exists(send_path):
             os.remove(send_path)
 
-    # 文案单独发：梳理结果 → 原文案，都是独立消息，不会被 caption 截断
+    # 文案单独发：梳理结果（仅当没塞进 caption 时）→ 原文案，都是独立消息
     if need_analysis and analysis:
-        # 先发梳理结果
-        summary_text = title_prefix + f"📝 AI 梳理：\n\n{analysis}\n\n🔗 {clean_url}"
-        while summary_text:
-            await msg.reply_text(summary_text[:4000])
-            summary_text = summary_text[4000:]
+        # 梳理已经在 caption 里就跳过；否则独立发
+        if not caption_with_summary:
+            summary_text = title_prefix + f"📝 AI 梳理：\n\n{analysis}\n\n🔗 {clean_url}"
+            while summary_text:
+                await msg.reply_text(summary_text[:4000])
+                summary_text = summary_text[4000:]
         # 再发原文案
         full_text = title_prefix + f"原文案：\n{transcript}\n\n🔗 {clean_url}"
         while full_text:
