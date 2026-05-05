@@ -399,48 +399,232 @@ async def handle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
-async def _process_article(msg, url: str):
-    """文章链接：滚动分段截图，作为相册发送（更清晰）"""
-    await msg.reply_text("📸 正在截取网页...")
-    prefix = f"{SAVE_DIR}/article_{abs(hash(url))}"
-    import asyncio
-    loop = asyncio.get_event_loop()
-    paths, title = await loop.run_in_executor(None, webpage_screenshot, url, prefix)
-    paths = [p for p in paths if os.path.exists(p)]
-    if not paths:
-        await msg.reply_text(f"❌ 截图失败\n🔗 {url}")
-        return
-    # 规范化尺寸，防止 Telegram Photo_invalid_dimensions
-    paths = normalize_for_telegram(paths)
+def extract_page_content(url, save_path_prefix):
+    """提取页面正文 + 主要图片，不做整页截图。
+    返回 (text, image_paths, page_title)
+    """
+    is_x = ("twitter.com" in url) or ("x.com" in url)
+    paths = []
+    text = ""
+    page_title = ""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        vp_width = 700 if is_x else 1200
+        context = browser.new_context(
+            viewport={"width": vp_width, "height": 1600},
+            device_scale_factor=2,
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        )
+        page = context.new_page()
+        page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        try:
+            page.wait_for_load_state("load", timeout=15000)
+        except Exception:
+            pass
+        page.wait_for_timeout(2000)
+        page_title = (page.title() or "").strip()
 
-    caption = (f"{title}\n\n" if title else "") + f"🔗 {url}"
-    caption = caption[:1024]
-
-    # Telegram 相册每组最多 10 张
-    try:
-        # 读入所有图片字节
-        photos = []
-        for p in paths:
-            with open(p, "rb") as f:
-                photos.append(f.read())
-
-        if len(photos) == 1:
-            await msg.reply_photo(photo=photos[0], caption=caption)
-        else:
-            # 分组发送（每组最多 10 张），caption 放最后一组最后一张
-            CHUNK = 10
-            groups = [photos[i:i + CHUNK] for i in range(0, len(photos), CHUNK)]
-            for idx, group in enumerate(groups):
-                media = [InputMediaPhoto(media=b) for b in group]
-                if idx == len(groups) - 1:
-                    media[-1] = InputMediaPhoto(media=group[-1], caption=caption)
-                await msg.reply_media_group(media=media)
-    finally:
-        for p in paths:
+        if is_x:
             try:
-                os.remove(p)
+                page.keyboard.press("Escape")
             except Exception:
                 pass
+            try:
+                page.locator('article[data-testid="tweet"]').first.wait_for(timeout=10000)
+            except Exception:
+                pass
+            page.wait_for_timeout(500)
+            try:
+                text = page.evaluate("""() => {
+                    const el = document.querySelector('article[data-testid="tweet"] [data-testid="tweetText"]');
+                    return el ? el.innerText : '';
+                }""") or ""
+            except Exception:
+                text = ""
+        else:
+            try:
+                text = page.evaluate("""() => {
+                    const sels = ['article', 'main', '[role="main"]', '.post-content', '.article-content', '#content'];
+                    for (const s of sels) {
+                        const el = document.querySelector(s);
+                        if (el && el.innerText && el.innerText.trim().length > 100) return el.innerText;
+                    }
+                    return document.body ? document.body.innerText : '';
+                }""") or ""
+            except Exception:
+                text = ""
+
+        # 触发懒加载，确保图片 src 都有了
+        try:
+            total_h = page.evaluate("document.body.scrollHeight")
+            vp_h = page.evaluate("window.innerHeight")
+            for sy in range(0, total_h, vp_h):
+                page.evaluate(f"window.scrollTo(0, {sy})")
+                page.wait_for_timeout(250)
+            page.evaluate("window.scrollTo(0, 0)")
+        except Exception:
+            pass
+
+        try:
+            image_urls = page.evaluate("""() => {
+                const imgs = document.querySelectorAll('img');
+                const urls = [];
+                const seen = new Set();
+                for (const img of imgs) {
+                    const src = img.src || img.getAttribute('data-src') || '';
+                    if (!src || src.startsWith('data:')) continue;
+                    if (img.naturalWidth > 0 && img.naturalWidth < 200) continue;
+                    if (img.naturalHeight > 0 && img.naturalHeight < 200) continue;
+                    const isXMedia = src.includes('pbs.twimg.com/media');
+                    const isBigEnough = img.naturalWidth >= 400 || img.naturalHeight >= 400;
+                    if ((isXMedia || isBigEnough) && !seen.has(src)) {
+                        seen.add(src);
+                        urls.push(src);
+                    }
+                }
+                return urls;
+            }""") or []
+            for idx, img_url in enumerate(image_urls[:10]):
+                try:
+                    img_path = f"{save_path_prefix}_img{idx+1}.jpg"
+                    resp = page.request.get(img_url)
+                    if resp.ok:
+                        with open(img_path, "wb") as f:
+                            f.write(resp.body())
+                        paths.append(img_path)
+                except Exception as e:
+                    print(f"[提取图片失败] {img_url}: {e}")
+        except Exception:
+            pass
+
+        browser.close()
+    return text.strip(), paths, page_title
+
+
+async def _send_media_with_caption(msg, image_paths, caption):
+    """发送图片相册（自动按 10 张分组），caption 放最后一张"""
+    photos = []
+    for p in image_paths:
+        with open(p, "rb") as f:
+            photos.append(f.read())
+    if len(photos) == 1:
+        await msg.reply_photo(photo=photos[0], caption=caption)
+        return
+    CHUNK = 10
+    groups = [photos[i:i + CHUNK] for i in range(0, len(photos), CHUNK)]
+    for idx, group in enumerate(groups):
+        media = [InputMediaPhoto(media=b) for b in group]
+        if idx == len(groups) - 1:
+            media[-1] = InputMediaPhoto(media=group[-1], caption=caption)
+        await msg.reply_media_group(media=media)
+
+
+async def _send_long_text(msg, text):
+    while text:
+        await msg.reply_text(text[:4000])
+        text = text[4000:]
+
+
+async def _process_article(msg, url: str):
+    """文章/推文链接：
+      X 长推（>1024）：整页截图 + AI 要点 + 标题 + 链接
+      其他（X 短推、普通文章）：搬运正文 + 配图 + 链接（不截图）
+    """
+    is_x = ("twitter.com" in url) or ("x.com" in url)
+    await msg.reply_text("⏳ 处理中，请稍候...")
+    prefix = f"{SAVE_DIR}/article_{abs(hash(url))}"
+    loop = asyncio.get_event_loop()
+
+    text, content_imgs, page_title = await loop.run_in_executor(
+        None, extract_page_content, url, prefix
+    )
+
+    use_screenshot_mode = is_x and len(text) > 1024
+
+    if use_screenshot_mode:
+        # 截图模式不用先抓的 content 图片
+        for p in content_imgs:
+            try: os.remove(p)
+            except Exception: pass
+
+        ss_paths, _ = await loop.run_in_executor(None, webpage_screenshot, url, prefix)
+        ss_paths = [p for p in ss_paths if os.path.exists(p)]
+        if not ss_paths:
+            await msg.reply_text(f"❌ 截图失败\n🔗 {url}")
+            return
+        ss_paths = normalize_for_telegram(ss_paths)
+
+        analysis = analyze_transcript(text, page_title)
+        short_title = page_title[:200] if page_title else ""
+        title_line = f"{short_title}\n\n" if short_title else ""
+        link_line = f"🔗 {url}"
+
+        cap_full = (
+            f"📝 要点：\n\n{analysis}\n\n{title_line}{link_line}"
+            if analysis else f"{title_line}{link_line}"
+        )
+
+        try:
+            if len(cap_full) <= 1024:
+                await _send_media_with_caption(msg, ss_paths, cap_full)
+            else:
+                # 要点装不下 caption：先发要点，截图带标题+链接
+                if analysis:
+                    await _send_long_text(msg, f"📝 要点：\n\n{analysis}")
+                short_cap = (title_line + link_line)[:1024]
+                await _send_media_with_caption(msg, ss_paths, short_cap)
+        finally:
+            for p in ss_paths:
+                try: os.remove(p)
+                except Exception: pass
+        return
+
+    # 搬运模式：正文 + 配图 + 链接，不截图
+    title_line = f"{page_title}\n\n" if page_title else ""
+    body = text.strip()
+    link_line = f"🔗 {url}"
+
+    # 啥都没抓到：退回截图兜底，至少给用户能看的东西
+    if not body and not content_imgs:
+        ss_paths, _ = await loop.run_in_executor(None, webpage_screenshot, url, prefix)
+        ss_paths = [p for p in ss_paths if os.path.exists(p)]
+        if not ss_paths:
+            await msg.reply_text(f"❌ 内容提取失败\n🔗 {url}")
+            return
+        ss_paths = normalize_for_telegram(ss_paths)
+        cap = (title_line + link_line)[:1024]
+        try:
+            await _send_media_with_caption(msg, ss_paths, cap)
+        finally:
+            for p in ss_paths:
+                try: os.remove(p)
+                except Exception: pass
+        return
+
+    full_caption_parts = []
+    if title_line: full_caption_parts.append(title_line.rstrip())
+    if body: full_caption_parts.append(body)
+    full_caption_parts.append(link_line)
+    full_caption = "\n\n".join(full_caption_parts)
+
+    if content_imgs:
+        content_imgs = normalize_for_telegram(content_imgs)
+        try:
+            if len(full_caption) <= 1024:
+                await _send_media_with_caption(msg, content_imgs, full_caption)
+            else:
+                # 正文装不下：先发正文，图片带标题+链接
+                await _send_long_text(msg, full_caption)
+                short_cap = (title_line + link_line)[:1024]
+                await _send_media_with_caption(msg, content_imgs, short_cap)
+        finally:
+            for p in content_imgs:
+                try: os.remove(p)
+                except Exception: pass
+    else:
+        # 无图：纯文本消息
+        await _send_long_text(msg, full_caption)
 
 
 def _compress_video(src: str, target_mb: float = 49.0, max_src_mb: float = 200.0) -> str:
