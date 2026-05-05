@@ -570,12 +570,44 @@ async def _send_long_text(msg, text):
         text = text[4000:]
 
 
+async def _screenshot_with_summary(msg, loop, url, prefix, summary_source, title):
+    """通用截图模式：webpage_screenshot 同时给截图分段+原图，再加 AI 要点+标题+链接"""
+    ss_paths, _ = await loop.run_in_executor(None, webpage_screenshot, url, prefix)
+    ss_paths = [p for p in ss_paths if os.path.exists(p)]
+    if not ss_paths:
+        await msg.reply_text(f"❌ 截图失败\n🔗 {url}")
+        return
+    ss_paths = normalize_for_telegram(ss_paths)
+
+    analysis = analyze_transcript(summary_source, title) if summary_source else ""
+    short_title = title[:200] if title else ""
+    title_line = f"📄 {short_title}\n\n" if short_title else ""
+    link_line = f"🔗 {url}"
+    cap_full = (
+        f"📝 要点：\n\n{analysis}\n\n{title_line}{link_line}"
+        if analysis else f"{title_line}{link_line}"
+    )
+    try:
+        if len(cap_full) <= 1024:
+            await _send_media_with_caption(msg, ss_paths, cap_full)
+        else:
+            if analysis:
+                await _send_long_text(msg, f"📝 要点：\n\n{analysis}")
+            short_cap = (title_line + link_line)[:1024]
+            await _send_media_with_caption(msg, ss_paths, short_cap)
+    finally:
+        for p in ss_paths:
+            try: os.remove(p)
+            except Exception: pass
+
+
 async def _process_article(msg, url: str):
     """文章/推文链接分流：
-      x_article: 截图 + AI 要点 + 文章标题 + 链接
-      x_quote:   主推 + ↓引用@user + 图 + 链接（搬运）
-      x_tweet:   推文 + 图 + 链接（搬运）
-      generic:   非 X 文章，文本 + 图 + 链接（搬运）
+      x_article:                 截图+原图 + AI 要点 + 标题 + 链接
+      x_quote / x_tweet, >1024:  截图+原图 + AI 要点 + 标题 + 链接
+      x_quote, ≤1024:            搬运 主推+↓引用@user+图+链接
+      x_tweet, ≤1024:            搬运 推文+图+链接
+      generic:                   搬运 文本+图+链接
     """
     await msg.reply_text("⏳ 处理中，请稍候...")
     prefix = f"{SAVE_DIR}/article_{abs(hash(url))}"
@@ -588,40 +620,30 @@ async def _process_article(msg, url: str):
     images = info["images"]
     quote = info["quote"]
 
+    # 决定是否走截图模式
     if kind == "x_article":
-        # 文章模式：截图 + AI 要点 + 标题 + 链接
+        summary_source = text
+        do_screenshot = True
+    elif kind == "x_quote" and quote and quote["text"]:
+        combined = f"{text}\n\n———— 引用：\n{quote['text']}" if text else quote["text"]
+        summary_source = combined
+        do_screenshot = len(combined) > 1024
+    elif kind == "x_tweet":
+        summary_source = text
+        do_screenshot = len(text) > 1024
+    else:  # generic
+        summary_source = ""
+        do_screenshot = False
+
+    if do_screenshot:
+        # 提前清掉先抓的内容图，让 webpage_screenshot 重新抓（避免重复占空间）
         for p in images:
             try: os.remove(p)
             except Exception: pass
-        ss_paths, _ = await loop.run_in_executor(None, webpage_screenshot, url, prefix)
-        ss_paths = [p for p in ss_paths if os.path.exists(p)]
-        if not ss_paths:
-            await msg.reply_text(f"❌ 截图失败\n🔗 {url}")
-            return
-        ss_paths = normalize_for_telegram(ss_paths)
-
-        analysis = analyze_transcript(text, title) if text else ""
-        title_line = f"📄 {title}\n\n" if title else ""
-        link_line = f"🔗 {url}"
-        cap_full = (
-            f"📝 要点：\n\n{analysis}\n\n{title_line}{link_line}"
-            if analysis else f"{title_line}{link_line}"
-        )
-        try:
-            if len(cap_full) <= 1024:
-                await _send_media_with_caption(msg, ss_paths, cap_full)
-            else:
-                if analysis:
-                    await _send_long_text(msg, f"📝 要点：\n\n{analysis}")
-                short_cap = (title_line + link_line)[:1024]
-                await _send_media_with_caption(msg, ss_paths, short_cap)
-        finally:
-            for p in ss_paths:
-                try: os.remove(p)
-                except Exception: pass
+        await _screenshot_with_summary(msg, loop, url, prefix, summary_source, title)
         return
 
-    # 搬运模式（X 推 / X 引用转推 / 非 X 文章）：不上 AI 要点、不截图
+    # 搬运模式（短 X 推 / 短 X 引用 / 非 X 文章）：不上 AI 要点、不截图
     if kind == "x_quote" and quote and quote["text"]:
         user_part = f" @{quote['user']}" if quote["user"] else ""
         body_text = f"{text}\n\n———— 引用{user_part}：\n{quote['text']}" if text else quote["text"]
