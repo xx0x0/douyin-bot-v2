@@ -400,13 +400,20 @@ async def handle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             pass
 
 def extract_page_content(url, save_path_prefix):
-    """提取页面正文 + 主要图片，不做整页截图。
-    返回 (text, image_paths, page_title)
+    """提取页面内容并分类。返回 dict:
+      kind: 'x_article' | 'x_quote' | 'x_tweet' | 'generic'
+      title: str   X 文章用文章标题；其他用 page.title()
+      text:  str   主要正文
+      images: list[str]  本地图片路径
+      quote: dict | None  X 引用转推: {'text': str, 'user': str}
     """
     is_x = ("twitter.com" in url) or ("x.com" in url)
     paths = []
+    title = ""
     text = ""
-    page_title = ""
+    quote = None
+    kind = "generic"
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         vp_width = 700 if is_x else 1200
@@ -422,8 +429,8 @@ def extract_page_content(url, save_path_prefix):
             page.wait_for_load_state("load", timeout=15000)
         except Exception:
             pass
-        page.wait_for_timeout(2000)
-        page_title = (page.title() or "").strip()
+        page.wait_for_timeout(2500)
+        page_title_default = (page.title() or "").strip()
 
         if is_x:
             try:
@@ -431,18 +438,53 @@ def extract_page_content(url, save_path_prefix):
             except Exception:
                 pass
             try:
-                page.locator('article[data-testid="tweet"]').first.wait_for(timeout=10000)
+                page.locator(
+                    'article[data-testid="tweet"], [data-testid="twitterArticleRichTextView"]'
+                ).first.wait_for(timeout=12000)
             except Exception:
                 pass
-            page.wait_for_timeout(500)
-            try:
-                text = page.evaluate("""() => {
-                    const el = document.querySelector('article[data-testid="tweet"] [data-testid="tweetText"]');
-                    return el ? el.innerText : '';
-                }""") or ""
-            except Exception:
-                text = ""
+            page.wait_for_timeout(800)
+
+            classify = page.evaluate("""() => {
+                const isArticle = !!document.querySelector('[data-testid="twitter-article-title"], [data-testid="twitterArticleRichTextView"]');
+                const arts = document.querySelectorAll('article[data-testid="tweet"]');
+                const main = arts[0];
+                const texts = [];
+                const users = [];
+                if (main) {
+                    main.querySelectorAll('[data-testid="tweetText"]').forEach(t => texts.push(t.innerText));
+                    main.querySelectorAll('[data-testid="User-Name"]').forEach(u => users.push(u.innerText));
+                }
+                let articleTitle = '', articleBody = '';
+                if (isArticle) {
+                    const t = document.querySelector('[data-testid="twitter-article-title"]');
+                    const b = document.querySelector('[data-testid="twitterArticleRichTextView"]');
+                    articleTitle = t ? t.innerText : '';
+                    articleBody = b ? b.innerText : '';
+                }
+                return { isArticle, texts, users, articleTitle, articleBody };
+            }""") or {"isArticle": False, "texts": [], "users": [], "articleTitle": "", "articleBody": ""}
+
+            if classify["isArticle"]:
+                kind = "x_article"
+                title = (classify["articleTitle"] or "").strip() or page_title_default
+                text = (classify["articleBody"] or "").strip()
+            elif len(classify["texts"]) >= 2:
+                kind = "x_quote"
+                text = (classify["texts"][0] or "").strip()
+                quote_text = (classify["texts"][1] or "").strip()
+                quote_user = ""
+                if len(classify["users"]) >= 2:
+                    # User-Name 格式 "显示名\n@handle\n· 时间"，取第一行
+                    quote_user = (classify["users"][1] or "").split("\n")[0].strip()
+                quote = {"text": quote_text, "user": quote_user}
+                title = page_title_default
+            else:
+                kind = "x_tweet"
+                text = (classify["texts"][0] if classify["texts"] else "").strip()
+                title = page_title_default
         else:
+            kind = "generic"
             try:
                 text = page.evaluate("""() => {
                     const sels = ['article', 'main', '[role="main"]', '.post-content', '.article-content', '#content'];
@@ -454,8 +496,10 @@ def extract_page_content(url, save_path_prefix):
                 }""") or ""
             except Exception:
                 text = ""
+            text = text.strip()
+            title = page_title_default
 
-        # 触发懒加载，确保图片 src 都有了
+        # 触发懒加载，确保图片 src 都有
         try:
             total_h = page.evaluate("document.body.scrollHeight")
             vp_h = page.evaluate("window.innerHeight")
@@ -499,7 +543,7 @@ def extract_page_content(url, save_path_prefix):
             pass
 
         browser.close()
-    return text.strip(), paths, page_title
+    return {"kind": kind, "title": title, "text": text, "images": paths, "quote": quote}
 
 
 async def _send_media_with_caption(msg, image_paths, caption):
