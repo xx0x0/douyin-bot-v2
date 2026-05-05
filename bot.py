@@ -571,27 +571,28 @@ async def _send_long_text(msg, text):
 
 
 async def _process_article(msg, url: str):
-    """文章/推文链接：
-      X 长推（>1024）：整页截图 + AI 要点 + 标题 + 链接
-      其他（X 短推、普通文章）：搬运正文 + 配图 + 链接（不截图）
+    """文章/推文链接分流：
+      x_article: 截图 + AI 要点 + 文章标题 + 链接
+      x_quote:   主推 + ↓引用@user + 图 + 链接（搬运）
+      x_tweet:   推文 + 图 + 链接（搬运）
+      generic:   非 X 文章，文本 + 图 + 链接（搬运）
     """
-    is_x = ("twitter.com" in url) or ("x.com" in url)
     await msg.reply_text("⏳ 处理中，请稍候...")
     prefix = f"{SAVE_DIR}/article_{abs(hash(url))}"
     loop = asyncio.get_event_loop()
 
-    text, content_imgs, page_title = await loop.run_in_executor(
-        None, extract_page_content, url, prefix
-    )
+    info = await loop.run_in_executor(None, extract_page_content, url, prefix)
+    kind = info["kind"]
+    text = info["text"]
+    title = info["title"]
+    images = info["images"]
+    quote = info["quote"]
 
-    use_screenshot_mode = is_x and len(text) > 1024
-
-    if use_screenshot_mode:
-        # 截图模式不用先抓的 content 图片
-        for p in content_imgs:
+    if kind == "x_article":
+        # 文章模式：截图 + AI 要点 + 标题 + 链接
+        for p in images:
             try: os.remove(p)
             except Exception: pass
-
         ss_paths, _ = await loop.run_in_executor(None, webpage_screenshot, url, prefix)
         ss_paths = [p for p in ss_paths if os.path.exists(p)]
         if not ss_paths:
@@ -599,21 +600,17 @@ async def _process_article(msg, url: str):
             return
         ss_paths = normalize_for_telegram(ss_paths)
 
-        analysis = analyze_transcript(text, page_title)
-        short_title = page_title[:200] if page_title else ""
-        title_line = f"{short_title}\n\n" if short_title else ""
+        analysis = analyze_transcript(text, title) if text else ""
+        title_line = f"📄 {title}\n\n" if title else ""
         link_line = f"🔗 {url}"
-
         cap_full = (
             f"📝 要点：\n\n{analysis}\n\n{title_line}{link_line}"
             if analysis else f"{title_line}{link_line}"
         )
-
         try:
             if len(cap_full) <= 1024:
                 await _send_media_with_caption(msg, ss_paths, cap_full)
             else:
-                # 要点装不下 caption：先发要点，截图带标题+链接
                 if analysis:
                     await _send_long_text(msg, f"📝 要点：\n\n{analysis}")
                 short_cap = (title_line + link_line)[:1024]
@@ -624,20 +621,26 @@ async def _process_article(msg, url: str):
                 except Exception: pass
         return
 
-    # 搬运模式：正文 + 配图 + 链接，不截图
-    title_line = f"{page_title}\n\n" if page_title else ""
-    body = text.strip()
-    link_line = f"🔗 {url}"
+    # 搬运模式（X 推 / X 引用转推 / 非 X 文章）：不上 AI 要点、不截图
+    if kind == "x_quote" and quote and quote["text"]:
+        user_part = f" @{quote['user']}" if quote["user"] else ""
+        body_text = f"{text}\n\n———— 引用{user_part}：\n{quote['text']}" if text else quote["text"]
+    elif kind == "x_tweet":
+        body_text = text
+    else:  # generic
+        body_text = (f"{title}\n\n{text}" if title and text else (text or title))
 
-    # 啥都没抓到：退回截图兜底，至少给用户能看的东西
-    if not body and not content_imgs:
+    full_msg = f"{body_text}\n\n🔗 {url}" if body_text else f"🔗 {url}"
+
+    # 全空 → 截图兜底，避免发空消息
+    if not body_text and not images:
         ss_paths, _ = await loop.run_in_executor(None, webpage_screenshot, url, prefix)
         ss_paths = [p for p in ss_paths if os.path.exists(p)]
         if not ss_paths:
             await msg.reply_text(f"❌ 内容提取失败\n🔗 {url}")
             return
         ss_paths = normalize_for_telegram(ss_paths)
-        cap = (title_line + link_line)[:1024]
+        cap = ((f"{title}\n\n" if title else "") + f"🔗 {url}")[:1024]
         try:
             await _send_media_with_caption(msg, ss_paths, cap)
         finally:
@@ -646,29 +649,21 @@ async def _process_article(msg, url: str):
                 except Exception: pass
         return
 
-    full_caption_parts = []
-    if title_line: full_caption_parts.append(title_line.rstrip())
-    if body: full_caption_parts.append(body)
-    full_caption_parts.append(link_line)
-    full_caption = "\n\n".join(full_caption_parts)
-
-    if content_imgs:
-        content_imgs = normalize_for_telegram(content_imgs)
+    if images:
+        images = normalize_for_telegram(images)
         try:
-            if len(full_caption) <= 1024:
-                await _send_media_with_caption(msg, content_imgs, full_caption)
+            if len(full_msg) <= 1024:
+                await _send_media_with_caption(msg, images, full_msg)
             else:
-                # 正文装不下：先发正文，图片带标题+链接
-                await _send_long_text(msg, full_caption)
-                short_cap = (title_line + link_line)[:1024]
-                await _send_media_with_caption(msg, content_imgs, short_cap)
+                # 正文超 caption 1024：文本单独发，图片只带链接
+                await _send_long_text(msg, full_msg)
+                await _send_media_with_caption(msg, images, f"🔗 {url}")
         finally:
-            for p in content_imgs:
+            for p in images:
                 try: os.remove(p)
                 except Exception: pass
     else:
-        # 无图：纯文本消息
-        await _send_long_text(msg, full_caption)
+        await _send_long_text(msg, full_msg)
 
 
 def _compress_video(src: str, target_mb: float = 49.0, max_src_mb: float = 200.0) -> str:
