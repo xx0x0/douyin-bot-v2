@@ -70,6 +70,16 @@ def webpage_screenshot(url, save_path_prefix, max_segments=8):
             except Exception:
                 pass
             page.wait_for_timeout(800)
+            # X 的 <title> 被 Twitter 截到 ~140 字；从 DOM 抓真文本替代
+            try:
+                tweet_text = page.evaluate("""() => {
+                    const el = document.querySelector('article[data-testid="tweet"] [data-testid="tweetText"]');
+                    return el ? el.innerText : '';
+                }""")
+                if tweet_text and len(tweet_text) > len(title):
+                    title = tweet_text
+            except Exception:
+                pass
 
         # 先滚动一遍触发懒加载
         total_height = page.evaluate("document.body.scrollHeight")
