@@ -498,25 +498,34 @@ def extract_page_content(url, save_path_prefix):
                         }
                         return '';
                     }""", main_id) or ""
-                    print(f"[DBG quote] target={quoted_target!r}")
                     if quoted_target:
                         quoted_url = f"https://x.com/{quoted_target}"
-                        qpage = context.new_page()
+                        # X 对同 context 重复请求会推登录墙；独立 context 复刻匿名首访
+                        qctx = browser.new_context(
+                            viewport={"width": vp_width, "height": 1600},
+                            device_scale_factor=2,
+                            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                                       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                        )
+                        qpage = qctx.new_page()
                         try:
                             qpage.goto(quoted_url, wait_until="domcontentloaded", timeout=30000)
-                            qpage.wait_for_timeout(5000)
+                            try:
+                                qpage.locator('article[data-testid="tweet"] [data-testid="tweetText"]').first.wait_for(timeout=12000)
+                            except Exception:
+                                pass
+                            qpage.wait_for_timeout(1500)
                             quoted_full = qpage.evaluate(r"""() => {
                                 const t = document.querySelector('article[data-testid="tweet"] [data-testid="tweetText"]');
                                 return t ? t.innerText : '';
                             }""") or ""
                             quoted_full = quoted_full.strip()
-                            print(f"[DBG quote] qpage textLen={len(quoted_full)}, title={qpage.title()[:80]!r}")
                             if quoted_full and len(quoted_full) > len(quote_text):
                                 quote_text = quoted_full
                         except Exception as e:
                             print(f"[抓引用原推失败] {quoted_url}: {e}")
                         finally:
-                            qpage.close()
+                            qctx.close()
                 except Exception as e:
                     print(f"[解析引用推 URL 失败] {e}")
 
