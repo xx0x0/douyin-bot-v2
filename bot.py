@@ -693,8 +693,8 @@ SCREENSHOT_THRESHOLD = 400
 
 async def _process_article(msg, url: str):
     """文章/推文链接分流：
-      x_article:                                截图+原图 + 标题 + 链接
-      x_quote / x_tweet, 字数 > THRESHOLD:      截图+原图 + 标题 + 链接
+      x_article:                                截图+原图 + 简短要点 + 标题 + 链接
+      x_quote / x_tweet, 字数 > THRESHOLD:      截图+原图 + 简短要点 + 标题 + 链接
       x_quote, 字数 ≤ THRESHOLD:                A 式：主推一条 + ↓引用@user 一条
       x_tweet, 字数 ≤ THRESHOLD:                搬运 推文+图+链接
       generic:                                  搬运 文本+图+链接
