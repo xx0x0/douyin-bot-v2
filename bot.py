@@ -620,20 +620,23 @@ def extract_page_content(url, save_path_prefix):
     return {"kind": kind, "title": title, "text": text, "images": paths, "quote": quote}
 
 
-async def _send_media_with_caption(msg, image_paths, caption):
-    """发送图片相册（自动按 10 张分组），caption 放最后一张"""
+async def _send_media_with_caption(msg, image_paths, caption=""):
+    """发送图片相册（按 10 张分组）。caption 为空字符串时不附文字。"""
     photos = []
     for p in image_paths:
         with open(p, "rb") as f:
             photos.append(f.read())
     if len(photos) == 1:
-        await msg.reply_photo(photo=photos[0], caption=caption)
+        if caption:
+            await msg.reply_photo(photo=photos[0], caption=caption)
+        else:
+            await msg.reply_photo(photo=photos[0])
         return
     CHUNK = 10
     groups = [photos[i:i + CHUNK] for i in range(0, len(photos), CHUNK)]
     for idx, group in enumerate(groups):
         media = [InputMediaPhoto(media=b) for b in group]
-        if idx == len(groups) - 1:
+        if idx == len(groups) - 1 and caption:
             media[-1] = InputMediaPhoto(media=group[-1], caption=caption)
         await msg.reply_media_group(media=media)
 
