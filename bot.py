@@ -909,7 +909,12 @@ async def _process(msg, clean_url: str):
             # 无视频链接，回退到截图
             await _process_article(msg, clean_url)
             return
-        subprocess.run(["yt-dlp", "-o", video_path, video_url], capture_output=True)
+        headers = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"}
+        r = requests.get(video_url, headers=headers, stream=True, timeout=60)
+        r.raise_for_status()
+        with open(video_path, "wb") as f:
+            for chunk in r.iter_content(chunk_size=65536):
+                f.write(chunk)
 
     else:
         cookies = os.path.expanduser("~/x-cookies.txt")
