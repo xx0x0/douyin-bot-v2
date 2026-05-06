@@ -678,12 +678,18 @@ async def _screenshot_with_summary(msg, loop, url, prefix, summary_source, title
             except Exception: pass
 
 
+# 主+引合计字数超过这个就走截图，避免 TG 对话框堆长文
+SCREENSHOT_THRESHOLD = 1000
+
+
 async def _process_article(msg, url: str):
     """文章/推文链接分流：
-      x_article: 截图+原图 + 标题 + 链接（保留：文章是长文，截图更合适）
-      x_quote:   搬运 主推 + ———— 引用 @user：+ 引用文 + 图 + 链接（一条合并）
-      x_tweet:   搬运 推文 + 图 + 链接
-      generic:   搬运 标题 + 文本 + 图 + 链接
+      x_article:               截图+原图 + 标题 + 链接
+      x_quote, 合计 > 1000:    截图+原图 + 标题 + 链接
+      x_quote, 合计 ≤ 1000:    搬运 主推 + ———— 引用 @user：+ 引用文 + 图 + 链接
+      x_tweet, > 1000:         截图+原图 + 标题 + 链接
+      x_tweet, ≤ 1000:         搬运 推文 + 图 + 链接
+      generic:                 搬运 标题 + 文本 + 图 + 链接（不截图）
     """
     await msg.reply_text("⏳ 处理中，请稍候...")
     prefix = f"{SAVE_DIR}/article_{abs(hash(url))}"
@@ -696,7 +702,18 @@ async def _process_article(msg, url: str):
     images = info["images"]
     quote = info["quote"]
 
+    # 决定走截图还是搬运
     if kind == "x_article":
+        do_screenshot = True
+    elif kind == "x_quote" and quote and quote["text"]:
+        combined_len = len(text) + len(quote["text"])
+        do_screenshot = combined_len > SCREENSHOT_THRESHOLD
+    elif kind == "x_tweet":
+        do_screenshot = len(text) > SCREENSHOT_THRESHOLD
+    else:
+        do_screenshot = False
+
+    if do_screenshot:
         for p in images:
             try: os.remove(p)
             except Exception: pass
