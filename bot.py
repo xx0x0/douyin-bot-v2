@@ -296,6 +296,27 @@ def analyze_transcript(transcript, title):
     except:
         return ""
 
+
+def analyze_brief(text, title):
+    """简短梳理：3-5 句话核心要点，不分段不带标题，TG 对话框友好"""
+    import urllib.request, json as _json
+    prompt = f"""用 3-5 句话提炼正文核心要点，每句一行。不要分段标题、emoji、装饰符号。
+
+标题：{title}
+正文：{text}"""
+    data = _json.dumps({"model": "qwen2.5:7b", "prompt": prompt, "stream": False}).encode()
+    req = urllib.request.Request(
+        "http://localhost:11434/api/generate",
+        data=data,
+        headers={"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            return _json.loads(r.read()).get("response", "").strip()
+    except:
+        return ""
+
+
 class SafeMessage:
     """包装 Message，所有 reply_* 调用在原消息被删时自动回退到直发"""
     def __init__(self, msg):
