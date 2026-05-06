@@ -498,8 +498,9 @@ def extract_page_content(url, save_path_prefix):
                         }
                         return '';
                     }""", main_id) or ""
-                    if quoted_target:
-                        quoted_url = f"https://x.com/{quoted_target}"
+                    if quoted_target and "/" in quoted_target:
+                        q_handle, q_tid = quoted_target.split("/", 1)
+                        quoted_url = f"https://x.com/{q_handle}/status/{q_tid}"
                         # X 对同 context 重复请求会推登录墙；独立 context 复刻匿名首访
                         qctx = browser.new_context(
                             viewport={"width": vp_width, "height": 1600},
