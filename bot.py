@@ -298,9 +298,16 @@ def analyze_transcript(transcript, title):
 
 
 def analyze_brief(text, title):
-    """简短梳理：3-5 句话核心要点，不分段不带标题，TG 对话框友好"""
+    """简短梳理：3-5 句话核心要点。专有名词必须原样保留，便于复制搜索。"""
     import urllib.request, json as _json
-    prompt = f"""用 3-5 句话提炼正文核心要点，每句一行。不要分段标题、emoji、装饰符号。
+    prompt = f"""基于正文写 3-5 句要点，简洁。
+
+强制规则：
+- 网址、网站名、GitHub 项目名、产品名、工具名、书名、人名、英文专有名词、hashtag —— 一律原样照抄，不翻译、不改写、不缩写、不省略大小写
+- 提到具体平台/工具/网站时，直接用原名称（如 NewsNow、今日热榜、SoPilot、GitHub Trending、Product Hunt）
+- 不要"该文章"、"本帖"、"作者表示"这类元叙述
+- 不要分段标题、emoji、星号、装饰符号
+- 句式短，可用顿号或换行分隔
 
 标题：{title}
 正文：{text}"""
