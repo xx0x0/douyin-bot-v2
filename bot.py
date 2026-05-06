@@ -655,9 +655,8 @@ async def _send_long_text(msg, text):
 
 
 async def _screenshot_with_summary(msg, loop, url, prefix, summary_source, title):
-    """截图模式：webpage_screenshot 同时给截图分段+原图，caption 只放标题+链接。
-    截图本身是 ground truth，不再做 AI 梳理（容易把要点抽象成废话）。
-    summary_source 参数保留但不再用，便于后续若想加可选梳理时复用。
+    """截图模式：webpage_screenshot 同时给截图分段+原图，再附简短要点。
+    要点 prompt 强制保留专有名词原文，便于复制搜索。
     """
     ss_paths, _ = await loop.run_in_executor(None, webpage_screenshot, url, prefix)
     ss_paths = [p for p in ss_paths if os.path.exists(p)]
@@ -666,12 +665,22 @@ async def _screenshot_with_summary(msg, loop, url, prefix, summary_source, title
         return
     ss_paths = normalize_for_telegram(ss_paths)
 
+    analysis = analyze_brief(summary_source, title) if summary_source else ""
     short_title = title[:200] if title else ""
     title_line = f"📄 {short_title}\n\n" if short_title else ""
     link_line = f"🔗 {url}"
-    cap = (title_line + link_line)[:1024]
+    cap_full = (
+        f"📝 要点：\n{analysis}\n\n{title_line}{link_line}"
+        if analysis else f"{title_line}{link_line}"
+    )
     try:
-        await _send_media_with_caption(msg, ss_paths, cap)
+        if len(cap_full) <= 1024:
+            await _send_media_with_caption(msg, ss_paths, cap_full)
+        else:
+            if analysis:
+                await _send_long_text(msg, f"📝 要点：\n{analysis}")
+            short_cap = (title_line + link_line)[:1024]
+            await _send_media_with_caption(msg, ss_paths, short_cap)
     finally:
         for p in ss_paths:
             try: os.remove(p)
