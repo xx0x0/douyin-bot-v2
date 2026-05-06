@@ -678,17 +678,12 @@ async def _screenshot_with_summary(msg, loop, url, prefix, summary_source, title
             except Exception: pass
 
 
-# 超过这个字数（主推+引用合计）就走截图模式，避免 TG 对话框堆长文
-SCREENSHOT_THRESHOLD = 400
-
-
 async def _process_article(msg, url: str):
     """文章/推文链接分流：
-      x_article:                                截图+原图 + 标题 + 链接
-      x_quote / x_tweet, 字数 > THRESHOLD:      截图+原图 + 标题 + 链接
-      x_quote, 字数 ≤ THRESHOLD:                A 式：主推一条 + ↓引用@user 一条
-      x_tweet, 字数 ≤ THRESHOLD:                搬运 推文+图+链接
-      generic:                                  搬运 文本+图+链接
+      x_article: 截图+原图 + 标题 + 链接（保留：文章是长文，截图更合适）
+      x_quote:   搬运 主推 + ———— 引用 @user：+ 引用文 + 图 + 链接（一条合并）
+      x_tweet:   搬运 推文 + 图 + 链接
+      generic:   搬运 标题 + 文本 + 图 + 链接
     """
     await msg.reply_text("⏳ 处理中，请稍候...")
     prefix = f"{SAVE_DIR}/article_{abs(hash(url))}"
@@ -701,58 +696,18 @@ async def _process_article(msg, url: str):
     images = info["images"]
     quote = info["quote"]
 
-    # 决定是否走截图模式
     if kind == "x_article":
-        summary_source = text
-        do_screenshot = True
-    elif kind == "x_quote" and quote and quote["text"]:
-        combined = f"{text}\n\n———— 引用：\n{quote['text']}" if text else quote["text"]
-        summary_source = combined
-        do_screenshot = len(combined) > SCREENSHOT_THRESHOLD
-    elif kind == "x_tweet":
-        summary_source = text
-        do_screenshot = len(text) > SCREENSHOT_THRESHOLD
-    else:  # generic
-        summary_source = ""
-        do_screenshot = False
-
-    if do_screenshot:
-        # 提前清掉先抓的内容图，让 webpage_screenshot 重新抓（避免重复占空间）
         for p in images:
             try: os.remove(p)
             except Exception: pass
-        await _screenshot_with_summary(msg, loop, url, prefix, summary_source, title)
+        await _screenshot_with_summary(msg, loop, url, prefix, "", title)
         return
 
-    # 搬运模式
-    # A 式（短引用转推）：主推一条 + ↓引用 一条
+    # 搬运模式：合并成一段文本
     if kind == "x_quote" and quote and quote["text"]:
         user_part = f" @{quote['user']}" if quote["user"] else ""
-        quote_msg = f"↓ 引用{user_part}：\n{quote['text']}\n\n🔗 {url}"
-
-        if images:
-            images = normalize_for_telegram(images)
-            try:
-                main_caption = text if (text and len(text) <= 1024) else ""
-                if text and len(text) > 1024:
-                    # 主推文超 caption 上限：文本独立发，图无 caption
-                    await _send_long_text(msg, text)
-                    await _send_media_with_caption(msg, images)
-                else:
-                    await _send_media_with_caption(msg, images, main_caption)
-                await _send_long_text(msg, quote_msg)
-            finally:
-                for p in images:
-                    try: os.remove(p)
-                    except Exception: pass
-        else:
-            if text:
-                await _send_long_text(msg, text)
-            await _send_long_text(msg, quote_msg)
-        return
-
-    # 短 X 推 / 非 X 文章：单条搬运
-    if kind == "x_tweet":
+        body_text = f"{text}\n\n———— 引用{user_part}：\n{quote['text']}" if text else f"———— 引用{user_part}：\n{quote['text']}"
+    elif kind == "x_tweet":
         body_text = text
     else:  # generic
         body_text = (f"{title}\n\n{text}" if title and text else (text or title))
