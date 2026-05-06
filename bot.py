@@ -520,6 +520,7 @@ def extract_page_content(url, save_path_prefix):
                                 return t ? t.innerText : '';
                             }""") or ""
                             quoted_full = quoted_full.strip()
+                            print(f"[DBG x_quote] qctx fetch {quoted_url} → textLen={len(quoted_full)}, title={qpage.title()[:80]!r}")
                             if quoted_full and len(quoted_full) > len(quote_text):
                                 quote_text = quoted_full
                         except Exception as e:
