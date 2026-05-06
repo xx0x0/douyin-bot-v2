@@ -477,6 +477,47 @@ def extract_page_content(url, save_path_prefix):
                 if len(classify["users"]) >= 2:
                     # User-Name 格式 "显示名\n@handle\n· 时间"，取第一行
                     quote_user = (classify["users"][1] or "").split("\n")[0].strip()
+
+                # X 在引用 card 里只渲染前 ~140 字，要拿完整版得另开一页抓被引用推的原 URL
+                try:
+                    main_id_m = re.search(r'/status/(\d+)', url)
+                    main_id = main_id_m.group(1) if main_id_m else ""
+                    quoted_target = page.evaluate(r"""(mainId) => {
+                        const main = document.querySelector('article[data-testid="tweet"]');
+                        if (!main) return '';
+                        const seen = new Set();
+                        for (const a of main.querySelectorAll('a[href*="/status/"]')) {
+                            const h = a.getAttribute('href') || '';
+                            const m = h.match(/^\/([\w]+)\/status\/(\d+)/);
+                            if (!m) continue;
+                            if (m[2] === mainId) continue;
+                            const key = m[1] + '/' + m[2];
+                            if (seen.has(key)) continue;
+                            seen.add(key);
+                            return key;
+                        }
+                        return '';
+                    }""", main_id) or ""
+                    if quoted_target:
+                        quoted_url = f"https://x.com/{quoted_target}"
+                        qpage = context.new_page()
+                        try:
+                            qpage.goto(quoted_url, wait_until="domcontentloaded", timeout=30000)
+                            qpage.wait_for_timeout(3000)
+                            quoted_full = qpage.evaluate(r"""() => {
+                                const t = document.querySelector('article[data-testid="tweet"] [data-testid="tweetText"]');
+                                return t ? t.innerText : '';
+                            }""") or ""
+                            quoted_full = quoted_full.strip()
+                            if quoted_full and len(quoted_full) > len(quote_text):
+                                quote_text = quoted_full
+                        except Exception as e:
+                            print(f"[抓引用原推失败] {quoted_url}: {e}")
+                        finally:
+                            qpage.close()
+                except Exception as e:
+                    print(f"[解析引用推 URL 失败] {e}")
+
                 quote = {"text": quote_text, "user": quote_user}
                 title = page_title_default
             else:
