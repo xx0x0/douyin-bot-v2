@@ -882,7 +882,13 @@ async def _process(msg, clean_url: str):
             with open(video_path, 'wb') as f:
                 for chunk in r2.iter_content(chunk_size=65536):
                     f.write(chunk)
+            if os.path.getsize(video_path) == 0:
+                os.remove(video_path)
+                await msg.reply_text("❌ CDN 返回空文件，请稍后重试")
+                return
         except Exception as e:
+            if os.path.exists(video_path):
+                os.remove(video_path)
             await msg.reply_text(f"❌ bad.news 下载失败：{e}")
             return
 
