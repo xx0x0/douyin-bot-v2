@@ -656,7 +656,7 @@ async def _screenshot_with_summary(msg, loop, url, prefix, summary_source, title
         return
     ss_paths = normalize_for_telegram(ss_paths)
 
-    analysis = analyze_transcript(summary_source, title) if summary_source else ""
+    analysis = analyze_brief(summary_source, title) if summary_source else ""
     short_title = title[:200] if title else ""
     title_line = f"📄 {short_title}\n\n" if short_title else ""
     link_line = f"🔗 {url}"
