@@ -381,7 +381,17 @@ async def handle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     raw = msg.text.strip()
 
-    # 从消息中提取链接
+    # 口令解析（口令可在消息任意位置）
+    # 跳过：/skip 或 跳过 → 不处理
+    # 标题：/title 或 标题 → 只发视频+标题，不转文案
+    # 文案：/text 或 文案 → 只发文案，不发视频
+    mode = "default"
+    if re.search(r"(/skip|跳过)", raw):
+        return
+    elif re.search(r"(/title|标题)", raw):
+        mode = "title_only"
+    elif re.search(r"(/text|文案)", raw):
+        mode = "text_only"
     url_match = re.search(r"https?://\S+", raw)
     if not url_match:
         return
