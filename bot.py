@@ -1238,7 +1238,7 @@ async def _process(msg, clean_url: str, mode: str = "default"):
             full_text = full_text[4000:]
 
 app = ApplicationBuilder().token(BOT_TOKEN).read_timeout(300).write_timeout(600).connect_timeout(60).build()
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+app.add_handler(MessageHandler(filters.TEXT, handle))
 
 async def _on_startup(app):
     if not BOT_OWNER:
