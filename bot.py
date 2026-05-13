@@ -979,6 +979,34 @@ async def _process(msg, clean_url: str, mode: str = "default"):
         await msg.reply_text("❌ 视频下载失败")
         return
 
+    # title_only：只发视频+标题，跳过 whisper
+    # text_only（抖音）：只发文案，不发视频
+    if mode == "title_only":
+        send_path = video_path
+        if file_size > 50:
+            compressed = _compress_video(video_path)
+            send_path = compressed if compressed else ""
+        if send_path:
+            import subprocess as sp
+            probe = sp.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
+                            "-show_entries", "stream=width,height",
+                            "-of", "csv=p=0", send_path],
+                           capture_output=True, text=True)
+            w, h = 0, 0
+            if probe.stdout.strip():
+                parts = probe.stdout.strip().split(",")
+                if len(parts) == 2:
+                    w, h = int(parts[0]), int(parts[1])
+            vid_caption = (f"视频标题：{title}\n\n" if title else "") + f"🔗 {clean_url}"
+            with open(send_path, "rb") as vf:
+                await msg.reply_video(video=vf, width=w or None, height=h or None,
+                                      caption=vid_caption[:1024], supports_streaming=True)
+            if send_path != video_path and os.path.exists(send_path):
+                os.remove(send_path)
+        if os.path.exists(video_path):
+            os.remove(video_path)
+        return
+
     # bad.news 是成人内容，跳过文案提取，直接发视频
     if is_badnews:
         file_size = os.path.getsize(video_path) / (1024 * 1024)
