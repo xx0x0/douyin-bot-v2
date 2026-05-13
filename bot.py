@@ -163,13 +163,16 @@ def webpage_screenshot(url, save_path_prefix, max_segments=8):
 
 
 def is_article_url(url):
-    """判断链接是否为文章（非视频/图文平台）"""
-    VIDEO_HOSTS = [
-        "douyin.com", "v.douyin.com", "tiktok.com", "xiaohongshu.com",
-        "xhslink.com", "youtube.com", "youtu.be", "instagram.com",
-        "bilibili.com", "b23.tv", "kuaishou.com", "bad.news",
+    """只有明确的文章平台才走截图流程，其余链接一律忽略"""
+    ARTICLE_HOSTS = [
+        "twitter.com", "x.com",
+        "mp.weixin.qq.com", "weixin.qq.com",
+        "weibo.com",
+        "zhihu.com",
+        "medium.com",
+        "substack.com",
     ]
-    return not any(h in url for h in VIDEO_HOSTS)
+    return any(h in url for h in ARTICLE_HOSTS)
 
 
 def normalize_for_telegram(paths):
