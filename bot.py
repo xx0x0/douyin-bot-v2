@@ -222,35 +222,48 @@ def normalize_for_telegram(paths):
 
 
 def clean_hallucination(text):
-    """清理 whisper 尾部幻觉：逐行从末尾往前检查，
-    中文比例过低 / 出现非中英文混杂（俄/韩/日/阿/泰/希腊等）的行，连同之后全部丢弃。
-    """
+    """清理 whisper 幻觉：全局占比过高直接返回空，否则从末尾往前裁尾部幻觉。"""
     if not text:
         return text
     lines = [l for l in text.split("\n") if l.strip()]
-    # 非中英/标点的"杂语言"字符范围
+    if not lines:
+        return text
+
     foreign_pat = re.compile(
-        r"[\u0400-\u04FF"   # 西里尔（俄语）
-        r"\uAC00-\uD7AF"    # 韩语
-        r"\u3040-\u30FF"    # 日语假名
-        r"\u0600-\u06FF"    # 阿拉伯
-        r"\u0E00-\u0E7F"    # 泰语
-        r"\u0370-\u03FF"    # 希腊
+        r"[\u0400-\u04FF"
+        r"\uAC00-\uD7AF"
+        r"\u3040-\u30FF"
+        r"\u0600-\u06FF"
+        r"\u0E00-\u0E7F"
+        r"\u0370-\u03FF"
         r"]"
     )
+    halluc_phrases = re.compile(
+        r"优优独播剧场|YoYo Television|字幕志愿者|中文字幕|请不吝点赞|订阅.*转发|打赏支持"
+    )
+
+    def is_halluc_line(line):
+        line = line.strip()
+        if not line:
+            return True
+        if halluc_phrases.search(line):
+            return True
+        if foreign_pat.search(line):
+            return True
+        zh = len(re.findall(r"[\u4e00-\u9fff]", line))
+        if len(line) <= 6 and zh <= 1:
+            return True
+        if re.fullmatch(r"[\s\d\.\?\!\u3002\uff1f\uff01\uff0c,\u2026\xb7\-A-Za-z]{1,6}", line):
+            return True
+        return False
+
+    halluc_count = sum(1 for l in lines if is_halluc_line(l))
+    if halluc_count / len(lines) > 0.5 or halluc_count > 20:
+        return ""
+
     cut_idx = len(lines)
     for i in range(len(lines) - 1, -1, -1):
-        line = lines[i].strip()
-        zh = len(re.findall(r"[\u4e00-\u9fff]", line))
-        total = len(line)
-        has_foreign = bool(foreign_pat.search(line))
-        # 这一行是幻觉特征：短 + 含异域字符，或 短 + 中文极少且有非中文字母
-        if has_foreign:
-            cut_idx = i
-            continue
-        # 一行极短且中文占比极低（纯符号/单字"对"/"是"反复）
-        if total <= 8 and zh <= 2 and re.fullmatch(r"[\s\u4e00-\u9fffA-Za-z\.\?\!。？！，,…]+", line):
-            # 连续极短无信息量行也去掉
+        if is_halluc_line(lines[i]):
             cut_idx = i
             continue
         break
@@ -979,6 +992,8 @@ async def _process(msg, clean_url: str, mode: str = "default"):
     if not os.path.exists(video_path):
         await msg.reply_text("❌ 视频下载失败")
         return
+
+    file_size = os.path.getsize(video_path) / (1024 * 1024) if os.path.exists(video_path) else 0
 
     # title_only：只发视频+标题，跳过 whisper
     # text_only（抖音）：只发文案，不发视频
