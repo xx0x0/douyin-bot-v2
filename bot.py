@@ -808,7 +808,7 @@ def _compress_video(src: str, target_mb: float = 49.0, max_src_mb: float = 200.0
     return ""
 
 
-async def _process(msg, clean_url: str):
+async def _process(msg, clean_url: str, mode: str = "default"):
     # 图文提取
     if "/note/" in clean_url:
         await msg.reply_text("⏳ 处理中，请稍候...")
