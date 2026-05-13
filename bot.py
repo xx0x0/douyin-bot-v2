@@ -1083,6 +1083,36 @@ async def _process(msg, clean_url: str, mode: str = "default"):
                 await msg.reply_text(f"❌ 音频提取失败\n🔗 {clean_url}")
                 return
 
+    # text_only + 抖音/bad.news：视频已下载，提完文案后不发视频直接返回
+    if mode == "text_only":
+        if os.path.exists(video_path):
+            subprocess.run(
+                ["whisper", video_path, "--language", "zh", "--model", "turbo",
+                 "--output_format", "txt", "--output_dir", SAVE_DIR,
+                 "--condition_on_previous_text", "False",
+                 "--no_speech_threshold", "0.8",
+                 "--logprob_threshold", "-0.5",
+                 "--compression_ratio_threshold", "2.0"],
+                capture_output=True
+            )
+            txt_path = os.path.splitext(video_path)[0] + ".txt"
+            transcript = ""
+            if os.path.exists(txt_path):
+                with open(txt_path) as f:
+                    transcript = f.read().strip()
+                transcript = clean_hallucination(transcript)
+                os.remove(txt_path)
+            os.remove(video_path)
+            title_prefix = f"视频标题：{title}\n\n" if title else ""
+            if transcript:
+                full_text = title_prefix + f"文案：\n{transcript}\n\n🔗 {clean_url}"
+                while full_text:
+                    await msg.reply_text(full_text[:4000])
+                    full_text = full_text[4000:]
+            else:
+                await msg.reply_text(f"❌ 未能提取到文案\n🔗 {clean_url}")
+        return
+
     # 所有平台：先转文案，再发视频
     # X 链接：先截前10秒试探，是成人内容就跳过全程 whisper
     run_whisper = True
