@@ -431,7 +431,7 @@ async def handle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             pass
 
     try:
-        await _process(msg, clean_url)
+        await _process(msg, clean_url, mode=mode)
     except Exception as e:
         print(f"[ERROR] {e}")
         import traceback; traceback.print_exc()
