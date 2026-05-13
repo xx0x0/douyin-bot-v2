@@ -1238,6 +1238,27 @@ async def _process(msg, clean_url: str, mode: str = "default"):
 
 app = ApplicationBuilder().token(BOT_TOKEN).read_timeout(300).write_timeout(600).connect_timeout(60).build()
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+
+async def _on_startup(app):
+    if not BOT_OWNER:
+        return
+    startup_msg = (
+        "🤖 Douyin Bot 已启动\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "直接发链接 → 视频 + 文案\n"
+        "加 标题 或 /title → 只发视频+标题\n"
+        "加 文案 或 /text → 只发文案\n"
+        "加 跳过 或 /skip → 忽略不处理\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "支持：抖音 / TikTok / X / YouTube\n"
+        "      小红书 / B站 / 快手 / Instagram"
+    )
+    try:
+        await app.bot.send_message(chat_id=BOT_OWNER, text=startup_msg)
+    except Exception as e:
+        print(f"[启动通知失败] {e}")
+
+app.post_init = _on_startup
 import logging
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
