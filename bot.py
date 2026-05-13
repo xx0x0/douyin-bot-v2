@@ -1008,6 +1008,53 @@ async def _process(msg, clean_url: str, mode: str = "default"):
             os.remove(send_path)
         return
 
+    # text_only 模式：不需要下载视频，直接转文案后返回
+    if mode == "text_only":
+        await msg.reply_text("⏳ 提取文案中...")
+        # 用 yt-dlp 只下载音频转文案
+        audio_path = f"{SAVE_DIR}/audio_{abs(hash(clean_url))}.wav"
+        if is_douyin:
+            # 抖音先拿视频再提音频
+            pass  # 继续走下面的视频下载流程，发送前截断
+        # 非抖音走 yt-dlp 直接提音频
+        if not is_douyin and not is_badnews:
+            cookies = os.path.expanduser("~/x-cookies.txt")
+            cookie_args = ["--cookies", cookies] if os.path.exists(cookies) else []
+            subprocess.run(
+                ["yt-dlp", "--no-playlist"] + cookie_args +
+                ["-x", "--audio-format", "wav", "-o", audio_path, clean_url],
+                capture_output=True
+            )
+            if os.path.exists(audio_path):
+                subprocess.run(
+                    ["whisper", audio_path, "--language", "zh", "--model", "turbo",
+                     "--output_format", "txt", "--output_dir", SAVE_DIR,
+                     "--condition_on_previous_text", "False",
+                     "--no_speech_threshold", "0.8",
+                     "--logprob_threshold", "-0.5",
+                     "--compression_ratio_threshold", "2.0"],
+                    capture_output=True
+                )
+                txt_path = os.path.splitext(audio_path)[0] + ".txt"
+                transcript = ""
+                if os.path.exists(txt_path):
+                    with open(txt_path) as f:
+                        transcript = f.read().strip()
+                    transcript = clean_hallucination(transcript)
+                    os.remove(txt_path)
+                os.remove(audio_path)
+                if transcript:
+                    full_text = f"文案：\n{transcript}\n\n🔗 {clean_url}"
+                    while full_text:
+                        await msg.reply_text(full_text[:4000])
+                        full_text = full_text[4000:]
+                else:
+                    await msg.reply_text(f"❌ 未能提取到文案\n🔗 {clean_url}")
+                return
+            else:
+                await msg.reply_text(f"❌ 音频提取失败\n🔗 {clean_url}")
+                return
+
     # 所有平台：先转文案，再发视频
     # X 链接：先截前10秒试探，是成人内容就跳过全程 whisper
     run_whisper = True
