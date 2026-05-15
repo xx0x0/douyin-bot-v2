@@ -414,7 +414,7 @@ async def handle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     PLATFORMS = ["douyin.com", "v.douyin.com", "tiktok.com", "xiaohongshu.com",
                  "xhslink.com", "twitter.com", "x.com", "youtube.com", "youtu.be",
                  "instagram.com", "weibo.com", "bilibili.com", "b23.tv", "kuaishou.com",
-                 "bad.news"]
+                 "bad.news", "github.com"]
 
     # 非视频平台链接 → 走文章截图流程
     if not any(x in text for x in PLATFORMS):
