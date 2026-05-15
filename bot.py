@@ -1129,30 +1129,29 @@ async def _process(msg, clean_url: str, mode: str = "default"):
                 await msg.reply_text(f"❌ 未能提取到文案\n🔗 {clean_url}")
         return
 
-    # 所有平台：先转文案，再发视频
-    # X 链接：先截前10秒试探，是成人内容就跳过全程 whisper
-    run_whisper = True
-    if is_x:
-        preview_path = video_path + "_preview.wav"
+    # 所有平台：先截前15秒试探，无连贯语音就跳过全程 whisper
+    run_whisper = False
+    preview_path = video_path + "_preview.wav"
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", video_path, "-t", "15", "-vn", "-ar", "16000", "-ac", "1", preview_path],
+        capture_output=True
+    )
+    if os.path.exists(preview_path):
         subprocess.run(
-            ["ffmpeg", "-y", "-i", video_path, "-t", "10", "-vn", "-ar", "16000", "-ac", "1", preview_path],
+            ["whisper", preview_path, "--language", "zh",
+             "--output_format", "txt", "--output_dir", SAVE_DIR,
+             "--no_speech_threshold", "0.8", "--logprob_threshold", "-0.5"],
             capture_output=True
         )
+        prev_txt_path = preview_path.replace(".wav", ".txt")
         preview_txt = ""
-        if os.path.exists(preview_path):
-            subprocess.run(
-                ["whisper", preview_path, "--language", "zh",
-                 "--output_format", "txt", "--output_dir", SAVE_DIR],
-                capture_output=True
-            )
-            prev_txt_path = preview_path.replace(".wav", ".txt")
-            if os.path.exists(prev_txt_path):
-                with open(prev_txt_path) as f:
-                    preview_txt = f.read().strip()
-                os.remove(prev_txt_path)
-            os.remove(preview_path)
-        if not is_coherent(preview_txt):
-            run_whisper = False
+        if os.path.exists(prev_txt_path):
+            with open(prev_txt_path) as f:
+                preview_txt = f.read().strip()
+            os.remove(prev_txt_path)
+        os.remove(preview_path)
+        if is_coherent(preview_txt):
+            run_whisper = True
 
     if run_whisper:
         # await msg.reply_text("🎙️ 转文案中（需1-2分钟）...")
