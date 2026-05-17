@@ -168,6 +168,7 @@ def is_article_url(url):
     ARTICLE_HOSTS = [
         "twitter.com", "x.com",
         "mp.weixin.qq.com", "weixin.qq.com",
+        "news.qq.com",
         "weibo.com",
         "zhihu.com",
         "medium.com",
