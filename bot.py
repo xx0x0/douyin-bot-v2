@@ -429,8 +429,11 @@ async def handle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                  "instagram.com", "weibo.com", "bilibili.com", "b23.tv", "kuaishou.com",
                  "bad.news", "github.com"]
 
-    # 非视频平台链接 → 走文章截图流程
-    if not any(x in text for x in PLATFORMS):
+    # 已知视频平台直接走视频流程
+    is_known_platform = any(x in text for x in PLATFORMS)
+
+    # 未知链接：白名单文章直接截图；其余先 yt-dlp 探测，有视频走下载，没视频截图
+    if not is_known_platform:
         if is_article_url(text):
             try:
                 await _process_article(msg, text)
@@ -441,6 +444,30 @@ async def handle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     await msg.reply_text(f"❌ 文章截图失败：{e}")
                 except:
                     pass
+            return
+
+        loop = asyncio.get_event_loop()
+        if await loop.run_in_executor(None, has_video, text):
+            try:
+                await _process(msg, text, mode=mode)
+            except Exception as e:
+                print(f"[ERROR unknown video] {e}")
+                import traceback; traceback.print_exc()
+                try:
+                    await _process_article(msg, text)
+                except Exception as e2:
+                    await msg.reply_text(f"❌ 处理失败：{e}")
+            return
+
+        try:
+            await _process_article(msg, text)
+        except Exception as e:
+            print(f"[ERROR fallback article] {e}")
+            import traceback; traceback.print_exc()
+            try:
+                await msg.reply_text(f"❌ 链接处理失败：{e}")
+            except:
+                pass
         return
 
     # 解析短链接，去除追踪参数
