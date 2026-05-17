@@ -18,7 +18,7 @@ def is_qq_news(url: str) -> bool:
     return any(h in url for h in QQ_NEWS_HOSTS)
 
 
-async def fetch_m3u8(url: str) -> str | None:
+async def fetch_m3u8(url: str) -> Optional[str]:
     """打开页面，拦截到第一条 m3u8 链接就返回。"""
     found: list[str] = []
 
