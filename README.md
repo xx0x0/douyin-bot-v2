@@ -230,6 +230,7 @@ launchctl load ~/Library/LaunchAgents/com.douyin.bot.plist
 ## 📜 更新日志
 
 ### 2026-05-14 ~ 05-17
+- 🆕 **腾讯新闻视频下载（05-17）** — `news.qq.com` / `view.inews.qq.com` 用 Playwright 拦截 m3u8 + ffmpeg 转封装，失败回退截图
 - 🆕 **未知链接智能分流（05-17）** — 未知链接先用 yt-dlp 探测视频，有视频走下载，没视频截图；视频下载失败自动回退截图
 - 🆕 **口令控制** — 消息里加 `/skip`/`跳过` 忽略、`/title`/`标题` 只发视频不转文案、`/text`/`文案` 只提取文案不发视频
 - 🆕 **启动通知** — bot 启动时自动给 BOT_OWNER 发消息，列出支持口令；新增 `BOT_OWNER` 环境变量
