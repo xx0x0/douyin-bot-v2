@@ -427,6 +427,7 @@ async def handle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     PLATFORMS = ["douyin.com", "v.douyin.com", "tiktok.com", "xiaohongshu.com",
                  "xhslink.com", "twitter.com", "x.com", "youtube.com", "youtu.be",
                  "instagram.com", "weibo.com", "bilibili.com", "b23.tv", "kuaishou.com",
+                 "news.qq.com", "view.inews.qq.com",
                  "bad.news", "github.com"]
 
     # 已知视频平台直接走视频流程
