@@ -164,17 +164,29 @@ def webpage_screenshot(url, save_path_prefix, max_segments=8):
 
 
 def is_article_url(url):
-    """只有明确的文章平台才走截图流程，其余链接一律忽略"""
+    """白名单作为快速判定：明确的文章平台直接走截图，不再用 yt-dlp 探测节省时间"""
     ARTICLE_HOSTS = [
         "twitter.com", "x.com",
         "mp.weixin.qq.com", "weixin.qq.com",
-        "news.qq.com",
         "weibo.com",
         "zhihu.com",
         "medium.com",
         "substack.com",
     ]
     return any(h in url for h in ARTICLE_HOSTS)
+
+
+def has_video(url):
+    """用 yt-dlp 探测 URL 是否包含可下载视频。10 秒超时。"""
+    try:
+        r = subprocess.run(
+            ["yt-dlp", "--simulate", "--no-warnings", "--quiet",
+             "--no-playlist", "--print", "id", url],
+            capture_output=True, text=True, timeout=10
+        )
+        return r.returncode == 0 and bool(r.stdout.strip())
+    except Exception:
+        return False
 
 
 def normalize_for_telegram(paths):
