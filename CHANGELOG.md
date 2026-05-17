@@ -2,7 +2,11 @@
 
 本文件记录 douyin-bot 的重要变更。日期格式 YYYY-MM-DD。
 
-## 2026-05-14 ~ 05-16
+## 2026-05-14 ~ 05-17
+
+### news.qq.com 加入文章白名单（2026-05-17）
+
+`is_article_url` 的 ARTICLE_HOSTS 增加 `news.qq.com`，腾讯新闻文章链接现在走截图流程。
 
 ### 口令控制
 
