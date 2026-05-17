@@ -1022,11 +1022,11 @@ async def _process(msg, clean_url: str, mode: str = "default"):
             capture_output=True, text=True
         )
         if dl.returncode != 0:
-            # 下载失败（可能是纯文字/图片推文），回退到截图
-            if is_x or "weibo.com" in clean_url:
+            # 下载失败（可能是纯文字/图片推文/不支持的视频站）→ 回退到截图
+            try:
                 await _process_article(msg, clean_url)
-                return
-            await msg.reply_text(f"❌ 下载失败：{dl.stderr[-300:]}")
+            except Exception as e:
+                await msg.reply_text(f"❌ 下载失败：{dl.stderr[-300:]}")
             return
 
     if not os.path.exists(video_path):
