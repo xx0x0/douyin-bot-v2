@@ -918,8 +918,31 @@ async def _process(msg, clean_url: str, mode: str = "default"):
     is_x = any(x in clean_url for x in ["twitter.com", "x.com"])
     is_douyin = any(x in clean_url for x in ["douyin.com", "v.douyin.com", "tiktok.com"])
     is_badnews = "bad.news" in clean_url
+    is_qqnews = any(x in clean_url for x in ["news.qq.com", "view.inews.qq.com"])
 
-    if is_badnews:
+    if is_qqnews:
+        try:
+            from qq_news_extractor import download_qq_news_video
+            ok = await download_qq_news_video(clean_url, video_path)
+            if not ok or not os.path.exists(video_path) or os.path.getsize(video_path) == 0:
+                # 视频提取失败 → 截图兜底
+                await _process_article(msg, clean_url)
+                return
+            # 标题从页面 DATA 提取
+            try:
+                r = requests.get(clean_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+                m = re.search(r'"title":"([^"]+)"', r.text)
+                if m:
+                    title = m.group(1)
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"[ERROR qqnews] {e}")
+            import traceback; traceback.print_exc()
+            await _process_article(msg, clean_url)
+            return
+
+    elif is_badnews:
         # 构造下载 URL
         dl_url = clean_url
         if "/ajax/topic/" not in clean_url:
