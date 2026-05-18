@@ -1046,7 +1046,13 @@ async def _process(msg, clean_url: str, mode: str = "default"):
             capture_output=True, text=True
         )
         if dl.returncode != 0:
-            # 下载失败（可能是纯文字/图片推文/不支持的视频站）→ 回退到截图
+            # 纯视频平台（YouTube/Bilibili/Instagram/快手/小红书）下载失败 → 静默不响应
+            VIDEO_ONLY = ("youtube.com", "youtu.be", "bilibili.com", "b23.tv",
+                          "instagram.com", "kuaishou.com", "xiaohongshu.com", "xhslink.com")
+            if any(h in clean_url for h in VIDEO_ONLY):
+                print(f"[silent skip] {clean_url} download failed: {dl.stderr[-200:]}")
+                return
+            # X/weibo 等带文字的平台 → 回退到截图
             try:
                 await _process_article(msg, clean_url)
             except Exception as e:
