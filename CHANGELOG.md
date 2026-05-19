@@ -2,7 +2,16 @@
 
 本文件记录 douyin-bot 的重要变更。日期格式 YYYY-MM-DD。
 
-## 2026-05-14 ~ 05-18
+## 2026-05-14 ~ 05-19
+
+### X 长推文（NoteTweet）全文提取（2026-05-19）
+
+新增 `x_long_tweet.py`：
+- `is_long_tweet()` 通过 X syndication API 探测推文是否带 `note_tweet` 字段（X Premium 长推标志）
+- `fetch_full_tweet_text()` 用 Playwright 加载推文页 → 点击"Show more"展开 → 提取 `tweetText` innerText，并把 a 标签替换为展开 URL
+
+`_process` 在 X 路径里：yt-dlp 拿完 description 后再探测长推，是长推就用 Playwright 抓的全文覆盖 title。
+原因：yt-dlp 的 X extractor 只返回 ~280 字，长推被截断（实测从 159 字提升到 298 字）。
 
 ### 纯视频平台失败时静默（2026-05-18）
 
