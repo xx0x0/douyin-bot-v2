@@ -1041,6 +1041,16 @@ async def _process(msg, clean_url: str, mode: str = "default"):
                 title = info.get("description") or info.get("title", "")
                 os.remove(json_files[0])
 
+            # 长推文（NoteTweet）：yt-dlp 只给前 280 字，用 Playwright 抓全文覆盖
+            try:
+                from x_long_tweet import is_long_tweet, fetch_full_tweet_text
+                if is_long_tweet(clean_url):
+                    full = await fetch_full_tweet_text(clean_url)
+                    if full and len(full) > len(title):
+                        title = full
+            except Exception as e:
+                print(f"[long tweet fetch failed] {e}")
+
         dl = subprocess.run(
             ["yt-dlp", "--no-playlist"] + cookie_args + ["-o", video_path, clean_url],
             capture_output=True, text=True
