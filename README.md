@@ -229,7 +229,8 @@ launchctl load ~/Library/LaunchAgents/com.douyin.bot.plist
 
 ## 📜 更新日志
 
-### 2026-05-14 ~ 05-18
+### 2026-05-14 ~ 05-19
+- 🆕 **X 长推文全文提取（05-19）** — X Premium 长推（NoteTweet）通过 syndication API 探测，命中后用 Playwright 抓完整正文，覆盖 yt-dlp 截断的 description
 - 🆕 **纯视频平台失败时静默（05-18）** — YouTube/Bilibili/Instagram/快手/小红书 下载失败不再响应错误，直接静默跳过
 - 🆕 **腾讯新闻视频下载（05-17）** — `news.qq.com` / `view.inews.qq.com` 用 Playwright 拦截 m3u8 + ffmpeg 转封装，失败回退截图
 - 🆕 **未知链接智能分流（05-17）** — 未知链接先用 yt-dlp 探测视频，有视频走下载，没视频截图；视频下载失败自动回退截图
