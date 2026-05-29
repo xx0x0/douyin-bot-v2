@@ -1006,17 +1006,14 @@ async def _process(msg, clean_url: str, mode: str = "default"):
             # 无视频链接，回退到截图
             await _process_article(msg, clean_url)
             return
-        try:
-            headers = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"}
-            r = requests.get(video_url, headers=headers, stream=True, timeout=60)
-            r.raise_for_status()
-            with open(video_path, "wb") as f:
-                for chunk in r.iter_content(chunk_size=65536):
-                    f.write(chunk)
-        except Exception as dl_err:
+        dl = subprocess.run(
+            ["yt-dlp", "--no-playlist", "-o", video_path, video_url],
+            capture_output=True, text=True
+        )
+        if dl.returncode != 0 or not os.path.exists(video_path):
             if os.path.exists(video_path):
                 os.remove(video_path)
-            await msg.reply_text(f"❌ 抖音视频下载失败：{dl_err}")
+            await msg.reply_text(f"❌ 抖音视频下载失败：{dl.stderr[-300:] if dl.stderr else 'unknown'}")
             return
         if os.path.getsize(video_path) == 0:
             os.remove(video_path)
