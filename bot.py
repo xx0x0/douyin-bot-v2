@@ -40,6 +40,14 @@ def webpage_screenshot(url, save_path_prefix, max_segments=8):
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
                        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         )
+        if is_x:
+            try:
+                from x_long_tweet import _load_x_cookies
+                ck = _load_x_cookies()
+                if ck:
+                    context.add_cookies(ck)
+            except Exception as e:
+                print(f"[X cookie load failed] {e}")
         page = context.new_page()
         page.goto(url, wait_until="domcontentloaded", timeout=45000)
         try:
