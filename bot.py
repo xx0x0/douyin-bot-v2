@@ -848,6 +848,31 @@ async def _process_article(msg, url: str):
         await _send_long_text(msg, full_msg)
 
 
+def _ensure_h264(src: str) -> str:
+    """如果视频编码不是 h264/h265，转码为 h264，返回新路径；否则原路返回"""
+    import subprocess as sp
+    probe = sp.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=codec_name", "-of", "default=noprint_wrappers=1:nokey=1", src],
+        capture_output=True, text=True
+    )
+    codec = probe.stdout.strip().lower()
+    if codec in ("h264", "h265", "hevc", ""):
+        return src
+    dst = src.rsplit(".", 1)[0] + "_h264.mp4"
+    result = sp.run([
+        "ffmpeg", "-y", "-i", src,
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "+faststart", dst
+    ], capture_output=True)
+    if result.returncode == 0 and os.path.exists(dst) and os.path.getsize(dst) > 0:
+        return dst
+    if os.path.exists(dst):
+        os.remove(dst)
+    return src
+
+
 def _compress_video(src: str, target_mb: float = 49.0, max_src_mb: float = 200.0) -> str:
     """用 ffmpeg 压缩视频到目标大小以内，超过 max_src_mb 的不压（会太糊）"""
     import subprocess as sp
@@ -1101,6 +1126,12 @@ async def _process(msg, clean_url: str, mode: str = "default"):
             compressed = _compress_video(video_path)
             send_path = compressed if compressed else ""
         if send_path:
+            converted = _ensure_h264(send_path)
+            if converted != send_path:
+                if send_path != video_path and os.path.exists(send_path):
+                    os.remove(send_path)
+                send_path = converted
+        if send_path:
             import subprocess as sp
             probe = sp.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
                             "-show_entries", "stream=width,height",
@@ -1134,6 +1165,11 @@ async def _process(msg, clean_url: str, mode: str = "default"):
                     f"⚠️ 视频过大（{file_size:.1f}MB），超过 200MB 不压缩，请到本地手动提取\n📁 {video_path}"
                 )
                 return
+        converted = _ensure_h264(send_path)
+        if converted != send_path:
+            if send_path != video_path and os.path.exists(send_path):
+                os.remove(send_path)
+            send_path = converted
         import subprocess as sp
         probe = sp.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
                         "-show_entries", "stream=width,height",
@@ -1306,6 +1342,12 @@ async def _process(msg, clean_url: str, mode: str = "default"):
                 f"⚠️ 视频过大（{file_size:.1f}MB），超过 200MB 不压缩，请到本地手动提取\n📁 {video_path}"
             )
             send_path = ""
+    if send_path:
+        converted = _ensure_h264(send_path)
+        if converted != send_path:
+            if send_path != video_path and os.path.exists(send_path):
+                os.remove(send_path)
+            send_path = converted
     if send_path:
         import subprocess as sp
         probe = sp.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
