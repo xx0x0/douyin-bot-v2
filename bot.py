@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import subprocess, os, sys, json, re, requests, glob, asyncio
 from telegram import Update, InputMediaPhoto
-from telegram.error import NetworkError, TimedOut
+from telegram.error import NetworkError, TimedOut, BadRequest
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 from playwright.sync_api import sync_playwright
 from PIL import Image
