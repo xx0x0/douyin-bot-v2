@@ -378,14 +378,19 @@ class SafeMessage:
         for attempt in range(3):
             try:
                 return await method(*args, **kwargs)
+            except (NetworkError, TimedOut) as e:
+                err = str(e).lower()
+                if "not found" in err:
+                    return await fallback(chat_id=self._cid, *args, **kwargs)
+                if attempt < 2:
+                    print(f"[网络重试 {attempt+1}/2] {type(e).__name__}: {str(e)[:120]}")
+                    await asyncio.sleep(2 * (attempt + 1))
+                    continue
+                raise
             except Exception as e:
                 err = str(e).lower()
                 if "not found" in err:
                     return await fallback(chat_id=self._cid, *args, **kwargs)
-                if ("timed out" in err or "timeout" in err) and attempt < 2:
-                    print(f"[超时重试 {attempt+1}/2]")
-                    await asyncio.sleep(3)
-                    continue
                 raise
 
     async def reply_text(self, *a, **kw):
