@@ -1038,14 +1038,24 @@ async def _process(msg, clean_url: str, mode: str = "default"):
                 title = info.get("title") or info.get("desc", "")
                 if video_url:
                     break
-                print(f"[抖音提取重试 {_attempt+1}/3] 无视频链接")
+                err_detail = info.get("error", "")
+                print(f"[抖音提取重试 {_attempt+1}/3] 无视频链接 mcp={err_detail or info.get('status', '?')}")
             except Exception as e:
                 print(f"[抖音提取重试 {_attempt+1}/3] {e}")
             if _attempt < 2:
                 await asyncio.sleep(2 * (_attempt + 1))
             elif not video_url:
-                await _process_article(msg, clean_url)
-                return
+                print("[抖音 MCP 全部失败，尝试 yt-dlp 兜底]")
+                dl_fb = subprocess.run(
+                    ["yt-dlp", "--no-playlist", "-o", video_path, clean_url],
+                    capture_output=True, text=True
+                )
+                if dl_fb.returncode == 0 and os.path.exists(video_path) and os.path.getsize(video_path) > 0:
+                    pass  # 继续后续发送流程
+                else:
+                    print(f"[yt-dlp 兜底失败] {dl_fb.stderr[-200:]}")
+                    await _process_article(msg, clean_url)
+                    return
         if not video_url:
             # 无视频链接，回退到截图
             await _process_article(msg, clean_url)
