@@ -1030,6 +1030,7 @@ async def _process(msg, clean_url: str, mode: str = "default"):
     elif is_douyin:
         video_url = ""
         title = ""
+        _ytdlp_fallback = False
         for _attempt in range(3):
             try:
                 result = get_douyin_download_link(clean_url)
