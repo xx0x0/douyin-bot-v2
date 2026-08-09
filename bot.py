@@ -1047,8 +1047,10 @@ async def _process(msg, clean_url: str, mode: str = "default"):
                 await asyncio.sleep(2 * (_attempt + 1))
             elif not video_url:
                 print("[抖音 MCP 全部失败，尝试 yt-dlp 兜底]")
+                douyin_cookies = os.path.expanduser("~/douyin-cookies.txt")
+                douyin_cookie_args = ["--cookies", douyin_cookies] if os.path.exists(douyin_cookies) else []
                 dl_fb = subprocess.run(
-                    ["yt-dlp", "--no-playlist", "-o", video_path, clean_url],
+                    ["yt-dlp", "--no-playlist"] + douyin_cookie_args + ["-o", video_path, clean_url],
                     capture_output=True, text=True
                 )
                 if dl_fb.returncode == 0 and os.path.exists(video_path) and os.path.getsize(video_path) > 0:
