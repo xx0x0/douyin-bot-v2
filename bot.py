@@ -1057,19 +1057,20 @@ async def _process(msg, clean_url: str, mode: str = "default"):
                     print(f"[yt-dlp 兜底失败] {dl_fb.stderr[-200:]}")
                     await _process_article(msg, clean_url)
                     return
-        if not video_url:
+        if not video_url and not _ytdlp_fallback:
             # 无视频链接，回退到截图
             await _process_article(msg, clean_url)
             return
-        dl = subprocess.run(
-            ["yt-dlp", "--no-playlist", "-o", video_path, video_url],
-            capture_output=True, text=True
-        )
-        if dl.returncode != 0 or not os.path.exists(video_path):
-            if os.path.exists(video_path):
-                os.remove(video_path)
-            await msg.reply_text(f"❌ 抖音视频下载失败：{dl.stderr[-300:] if dl.stderr else 'unknown'}")
-            return
+        if not _ytdlp_fallback:
+            dl = subprocess.run(
+                ["yt-dlp", "--no-playlist", "-o", video_path, video_url],
+                capture_output=True, text=True
+            )
+            if dl.returncode != 0 or not os.path.exists(video_path):
+                if os.path.exists(video_path):
+                    os.remove(video_path)
+                await msg.reply_text(f"❌ 抖音视频下载失败：{dl.stderr[-300:] if dl.stderr else 'unknown'}")
+                return
         if os.path.getsize(video_path) == 0:
             os.remove(video_path)
             await msg.reply_text("❌ CDN 返回空文件，请稍后重试")
