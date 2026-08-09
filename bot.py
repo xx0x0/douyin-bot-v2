@@ -1052,7 +1052,7 @@ async def _process(msg, clean_url: str, mode: str = "default"):
                     capture_output=True, text=True
                 )
                 if dl_fb.returncode == 0 and os.path.exists(video_path) and os.path.getsize(video_path) > 0:
-                    pass  # 继续后续发送流程
+                    _ytdlp_fallback = True
                 else:
                     print(f"[yt-dlp 兜底失败] {dl_fb.stderr[-200:]}")
                     await _process_article(msg, clean_url)
