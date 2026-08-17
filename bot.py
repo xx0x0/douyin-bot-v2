@@ -1128,8 +1128,6 @@ async def _process(msg, clean_url: str, mode: str = "default"):
             return
 
     if not os.path.exists(video_path):
-        VIDEO_ONLY = ("youtube.com", "youtu.be", "bilibili.com", "b23.tv",
-                      "instagram.com", "kuaishou.com", "xiaohongshu.com", "xhslink.com")
         if any(h in clean_url for h in VIDEO_ONLY):
             print(f"[silent skip] {clean_url} no video produced")
             return
