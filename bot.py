@@ -1183,9 +1183,8 @@ async def _handle_generic_ytdlp(msg, clean_url: str, video_path: str, is_x: bool
         except Exception as e:
             print(f"[long tweet fetch failed] {e}")
 
-    dl = subprocess.run(
-        ["yt-dlp", "--no-playlist"] + cookie_args + ["-o", video_path, clean_url],
-        capture_output=True, text=True
+    dl = await _run_subprocess(
+        "yt-dlp", "--no-playlist", *cookie_args, "-o", video_path, clean_url,
     )
     if dl.returncode != 0:
         if any(h in clean_url for h in VIDEO_ONLY):
