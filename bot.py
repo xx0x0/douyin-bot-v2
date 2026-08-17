@@ -1129,9 +1129,8 @@ async def _handle_douyin(msg, clean_url: str, video_path: str):
             print("[抖音 MCP 全部失败，尝试 yt-dlp 兜底]")
             douyin_cookies = os.path.expanduser("~/douyin-cookies.txt")
             douyin_cookie_args = ["--cookies", douyin_cookies] if os.path.exists(douyin_cookies) else []
-            dl_fb = subprocess.run(
-                ["yt-dlp", "--no-playlist"] + douyin_cookie_args + ["-o", video_path, clean_url],
-                capture_output=True, text=True
+            dl_fb = await _run_subprocess(
+                "yt-dlp", "--no-playlist", *douyin_cookie_args, "-o", video_path, clean_url
             )
             if dl_fb.returncode == 0 and os.path.exists(video_path) and os.path.getsize(video_path) > 0:
                 _ytdlp_fallback = True
@@ -1143,9 +1142,8 @@ async def _handle_douyin(msg, clean_url: str, video_path: str):
         await _process_article(msg, clean_url)
         return False, title
     if not _ytdlp_fallback:
-        dl = subprocess.run(
-            ["yt-dlp", "--no-playlist", "-o", video_path, video_url],
-            capture_output=True, text=True
+        dl = await _run_subprocess(
+            "yt-dlp", "--no-playlist", "-o", video_path, video_url
         )
         if dl.returncode != 0 or not os.path.exists(video_path):
             if os.path.exists(video_path):
