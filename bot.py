@@ -19,6 +19,17 @@ ALLOWED_USERS = {int(x) for x in os.environ["ALLOWED_USER"].split(",") if x.stri
 ALLOWED_GROUPS = {int(x) for x in os.environ["ALLOWED_GROUP"].split(",") if x.strip()}
 BOT_OWNER = int(os.environ.get("BOT_OWNER", "0")) or (min(ALLOWED_USERS) if ALLOWED_USERS else 0)
 
+PLATFORMS = [
+    "douyin.com", "v.douyin.com", "tiktok.com", "xiaohongshu.com",
+    "xhslink.com", "twitter.com", "x.com", "youtube.com", "youtu.be",
+    "instagram.com", "weibo.com", "bilibili.com", "b23.tv", "kuaishou.com",
+    "news.qq.com", "view.inews.qq.com", "bad.news", "github.com",
+]
+VIDEO_ONLY = (
+    "youtube.com", "youtu.be", "bilibili.com", "b23.tv",
+    "instagram.com", "kuaishou.com", "xiaohongshu.com", "xhslink.com",
+)
+
 sys.path.insert(0, DOUYIN_MCP)
 from douyin_mcp_server.server import get_douyin_download_link
 
