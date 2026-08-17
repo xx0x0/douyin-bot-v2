@@ -1411,6 +1411,27 @@ async def _process(msg, clean_url: str, mode: str = "default"):
 app = ApplicationBuilder().token(BOT_TOKEN).read_timeout(300).write_timeout(600).connect_timeout(60).build()
 app.add_handler(MessageHandler(filters.TEXT, handle))
 
+# 每7天检测一次抖音解析链路是否还有效
+_PROBE_VIDEO_ID = "7380153036879249699"  # 公开视频，只用来探针
+
+async def _health_check_douyin(context: ContextTypes.DEFAULT_TYPE):
+    if not BOT_OWNER:
+        return
+    try:
+        resp = requests.get(
+            "https://aweme.snssdk.com/aweme/v1/feed/",
+            params={"aweme_id": _PROBE_VIDEO_ID},
+            headers={"User-Agent": "com.ss.android.ugc.aweme/110101 (Linux; U; Android 10; zh_CN; Pixel 4; Build/QQ3A.200805.001; Cronet/58.0.2991.0)"},
+            timeout=15,
+        )
+        aweme_list = resp.json().get("aweme_list", [])
+        if aweme_list:
+            await context.bot.send_message(chat_id=BOT_OWNER, text="✅ [周检] 抖音解析链路正常")
+        else:
+            await context.bot.send_message(chat_id=BOT_OWNER, text="⚠️ [周检] 抖音移动端 API 返回空列表，解析链路可能已失效，请排查")
+    except Exception as e:
+        await context.bot.send_message(chat_id=BOT_OWNER, text=f"❌ [周检] 抖音解析链路异常：{e}")
+
 async def _on_startup(app):
     if not BOT_OWNER:
         return
