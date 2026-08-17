@@ -1451,7 +1451,12 @@ async def _on_startup(app):
     except Exception as e:
         print(f"[启动通知失败] {e}")
 
-app.post_init = _on_startup
+async def _on_startup_with_jobs(app):
+    await _on_startup(app)
+    # 每7天跑一次抖音解析健康检测，first=10s 后先跑一次确认正常
+    app.job_queue.run_repeating(_health_check_douyin, interval=7 * 24 * 3600, first=10)
+
+app.post_init = _on_startup_with_jobs
 import logging
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
