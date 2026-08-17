@@ -446,12 +446,6 @@ async def handle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     text = url_match.group(0).rstrip(".,)")
 
-    PLATFORMS = ["douyin.com", "v.douyin.com", "tiktok.com", "xiaohongshu.com",
-                 "xhslink.com", "twitter.com", "x.com", "youtube.com", "youtu.be",
-                 "instagram.com", "weibo.com", "bilibili.com", "b23.tv", "kuaishou.com",
-                 "news.qq.com", "view.inews.qq.com",
-                 "bad.news", "github.com"]
-
     # 已知视频平台直接走视频流程
     is_known_platform = any(x in text for x in PLATFORMS)
 
