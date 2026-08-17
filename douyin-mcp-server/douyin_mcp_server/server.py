@@ -272,18 +272,22 @@ async def extract_douyin_text(
         processor = DouyinProcessor(api_key, model)
         
         # 解析视频链接
-        ctx.info("正在解析抖音分享链接...")
+        if ctx:
+            ctx.info("正在解析抖音分享链接...")
         video_info = processor.parse_share_url(share_link)
         
         # 直接使用视频URL进行文本提取
-        ctx.info("正在从视频中提取文本...")
+        if ctx:
+            ctx.info("正在从视频中提取文本...")
         text_content = processor.extract_text_from_video_url(video_info['url'])
         
-        ctx.info("文本提取完成!")
+        if ctx:
+            ctx.info("文本提取完成!")
         return text_content
         
     except Exception as e:
-        ctx.error(f"处理过程中出现错误: {str(e)}")
+        if ctx:
+            ctx.error(f"处理过程中出现错误: {str(e)}")
         raise Exception(f"提取抖音视频文本失败: {str(e)}")
 
 
