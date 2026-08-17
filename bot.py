@@ -1203,52 +1203,9 @@ async def _handle_generic_ytdlp(msg, clean_url: str, video_path: str, is_x: bool
 
 
 async def _process(msg, clean_url: str, mode: str = "default"):
-    # 图文提取
     if "/note/" in clean_url:
-        await msg.reply_text("⏳ 处理中，请稍候...")
-        info = None
-        for _attempt in range(3):
-            try:
-                result = get_douyin_download_link(clean_url)
-                info = json.loads(result)
-                if info.get("status") != "error":
-                    break
-                print(f"[抖音图文提取重试 {_attempt+1}/3] {info.get('error')}")
-            except Exception as e:
-                print(f"[抖音图文提取重试 {_attempt+1}/3] {e}")
-            if _attempt < 2:
-                await asyncio.sleep(2 * (_attempt + 1))
-        try:
-            if info is None or info.get("status") == "error":
-                await msg.reply_text(f"❌ 提取失败：{info.get('error', '未知错误') if info else '网络异常'}")
-                return
-            title = info.get("title", "")
-            images = info.get("images", [])
-            if not images:
-                await msg.reply_text(f"❌ 未能提取到图片，请手动保存\n🔗 {clean_url}")
-                return
-            caption_text = (f"{title}\n\n" if title else "") + f"🔗 {clean_url}"
-            photo_data = []
-            for img_url in images:
-                try:
-                    r = requests.get(img_url, timeout=30,
-                                     headers={"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X)"})
-                    if r.status_code == 200:
-                        photo_data.append(r.content)
-                except Exception as img_e:
-                    print(f"[图片下载失败] {img_url}: {img_e}")
-            if not photo_data:
-                await msg.reply_text(f"❌ 未能下载到图片\n🔗 {clean_url}")
-                return
-            media_group = [InputMediaPhoto(media=d) for d in photo_data]
-            media_group[-1] = InputMediaPhoto(media=photo_data[-1], caption=caption_text[:1024])
-            await msg.reply_media_group(media=media_group)
-        except Exception as e:
-            print(f"[ERROR 图文] {e}")
-            await msg.reply_text(f"❌ 图文提取失败：{e}\n🔗 {clean_url}")
+        await _handle_xiaohongshu_note(msg, clean_url)
         return
-
-    # await msg.reply_text("⏬ 获取视频中...")
 
     await msg.reply_text("⏳ 处理中，请稍候...")
 
@@ -1260,161 +1217,28 @@ async def _process(msg, clean_url: str, mode: str = "default"):
     is_qqnews = any(x in clean_url for x in ["news.qq.com", "view.inews.qq.com"])
 
     if is_qqnews:
-        try:
-            from qq_news_extractor import download_qq_news_video
-            ok = await download_qq_news_video(clean_url, video_path)
-            if not ok or not os.path.exists(video_path) or os.path.getsize(video_path) == 0:
-                # 视频提取失败 → 截图兜底
-                await _process_article(msg, clean_url)
-                return
-            # 标题从页面 DATA 提取
-            try:
-                r = requests.get(clean_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-                m = re.search(r'"title":"([^"]+)"', r.text)
-                if m:
-                    title = m.group(1)
-            except Exception:
-                pass
-        except Exception as e:
-            print(f"[ERROR qqnews] {e}")
-            import traceback; traceback.print_exc()
-            await _process_article(msg, clean_url)
+        if not await _handle_qqnews(msg, clean_url, video_path):
             return
+        try:
+            r = requests.get(clean_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+            m = re.search(r'"title":"([^"]+)"', r.text)
+            if m:
+                title = m.group(1)
+        except Exception:
+            pass
 
     elif is_badnews:
-        # 构造下载 URL
-        dl_url = clean_url
-        if "/ajax/topic/" not in clean_url:
-            m = re.search(r'/topic/(\d+)', clean_url)
-            if m:
-                dl_url = f"https://bad.news/ajax/topic/{m.group(1)}/download"
-        cookie_dict = {}
-        for part in BADNEWS_COOKIES.split(';'):
-            if '=' in part:
-                k, v = part.strip().split('=', 1)
-                cookie_dict[k.strip()] = v.strip()
-        page_hdrs = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                     'referer': 'https://bad.news/'}
-        dl_hdrs = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        try:
-            resp = requests.get(dl_url, cookies=cookie_dict, headers=page_hdrs, timeout=30)
-            vid_match = re.search(r'content="\d+;\s*URL=([^"]+)"', resp.text)
-            if not vid_match:
-                vid_match = re.search(r'href="(https://[^"]+\.mp4[^"]*)"', resp.text)
-            if not vid_match:
-                await msg.reply_text("❌ 无法提取视频链接，cookies 可能已过期")
-                return
-            video_dl_url = vid_match.group(1)
-            r2 = requests.get(video_dl_url, headers=dl_hdrs, stream=True, timeout=60)
-            if r2.status_code != 200:
-                await msg.reply_text(f"❌ 视频下载失败：HTTP {r2.status_code}")
-                return
-            with open(video_path, 'wb') as f:
-                for chunk in r2.iter_content(chunk_size=65536):
-                    f.write(chunk)
-            if os.path.getsize(video_path) == 0:
-                os.remove(video_path)
-                await msg.reply_text("❌ CDN 返回空文件，请稍后重试")
-                return
-        except Exception as e:
-            if os.path.exists(video_path):
-                os.remove(video_path)
-            await msg.reply_text(f"❌ bad.news 下载失败：{e}")
+        if not await _handle_badnews(msg, clean_url, video_path):
             return
 
     elif is_douyin:
-        video_url = ""
-        title = ""
-        _ytdlp_fallback = False
-        for _attempt in range(3):
-            try:
-                result = get_douyin_download_link(clean_url)
-                info = json.loads(result)
-                video_url = info.get("video_url") or info.get("download_url") or info.get("url", "")
-                title = info.get("title") or info.get("desc", "")
-                if video_url:
-                    break
-                err_detail = info.get("error", "")
-                print(f"[抖音提取重试 {_attempt+1}/3] 无视频链接 mcp={err_detail or info.get('status', '?')}")
-            except Exception as e:
-                print(f"[抖音提取重试 {_attempt+1}/3] {e}")
-            if _attempt < 2:
-                await asyncio.sleep(2 * (_attempt + 1))
-            elif not video_url:
-                print("[抖音 MCP 全部失败，尝试 yt-dlp 兜底]")
-                douyin_cookies = os.path.expanduser("~/douyin-cookies.txt")
-                douyin_cookie_args = ["--cookies", douyin_cookies] if os.path.exists(douyin_cookies) else []
-                dl_fb = subprocess.run(
-                    ["yt-dlp", "--no-playlist"] + douyin_cookie_args + ["-o", video_path, clean_url],
-                    capture_output=True, text=True
-                )
-                if dl_fb.returncode == 0 and os.path.exists(video_path) and os.path.getsize(video_path) > 0:
-                    _ytdlp_fallback = True
-                else:
-                    print(f"[yt-dlp 兜底失败] {dl_fb.stderr[-200:]}")
-                    await _process_article(msg, clean_url)
-                    return
-        if not video_url and not _ytdlp_fallback:
-            # 无视频链接，回退到截图
-            await _process_article(msg, clean_url)
-            return
-        if not _ytdlp_fallback:
-            dl = subprocess.run(
-                ["yt-dlp", "--no-playlist", "-o", video_path, video_url],
-                capture_output=True, text=True
-            )
-            if dl.returncode != 0 or not os.path.exists(video_path):
-                if os.path.exists(video_path):
-                    os.remove(video_path)
-                await msg.reply_text(f"❌ 抖音视频下载失败：{dl.stderr[-300:] if dl.stderr else 'unknown'}")
-                return
-        if os.path.getsize(video_path) == 0:
-            os.remove(video_path)
-            await msg.reply_text("❌ CDN 返回空文件，请稍后重试")
+        ok, title = await _handle_douyin(msg, clean_url, video_path)
+        if not ok:
             return
 
     else:
-        cookies = os.path.expanduser("~/x-cookies.txt")
-        cookie_args = ["--cookies", cookies] if os.path.exists(cookies) else []
-
-        # X 先获取推文文字
-        if is_x:
-            subprocess.run(
-                ["yt-dlp", "--no-playlist", "--write-info-json", "--skip-download"]
-                + cookie_args + ["-o", f"{SAVE_DIR}/xinfo", clean_url],
-                capture_output=True
-            )
-            json_files = glob.glob(f"{SAVE_DIR}/xinfo*.json")
-            if json_files:
-                with open(json_files[0]) as f:
-                    info = json.loads(f.read())
-                title = info.get("description") or info.get("title", "")
-                os.remove(json_files[0])
-
-            # 长推文（NoteTweet）：yt-dlp 只给前 280 字，用 Playwright 抓全文覆盖
-            try:
-                from x_long_tweet import is_long_tweet, fetch_full_tweet_text
-                if is_long_tweet(clean_url):
-                    full = await fetch_full_tweet_text(clean_url)
-                    if full and len(full) > len(title):
-                        title = full
-            except Exception as e:
-                print(f"[long tweet fetch failed] {e}")
-
-        dl = subprocess.run(
-            ["yt-dlp", "--no-playlist"] + cookie_args + ["-o", video_path, clean_url],
-            capture_output=True, text=True
-        )
-        if dl.returncode != 0:
-            # 纯视频平台（YouTube/Bilibili/Instagram/快手/小红书）下载失败 → 静默不响应
-            if any(h in clean_url for h in VIDEO_ONLY):
-                print(f"[silent skip] {clean_url} download failed: {dl.stderr[-200:]}")
-                return
-            # X/weibo 等带文字的平台 → 回退到截图
-            try:
-                await _process_article(msg, clean_url)
-            except Exception as e:
-                await msg.reply_text(f"❌ 下载失败：{dl.stderr[-300:]}")
+        ok, title = await _handle_generic_ytdlp(msg, clean_url, video_path, is_x)
+        if not ok:
             return
 
     if not os.path.exists(video_path):
@@ -1424,277 +1248,69 @@ async def _process(msg, clean_url: str, mode: str = "default"):
         await msg.reply_text("❌ 视频下载失败")
         return
 
-    file_size = os.path.getsize(video_path) / (1024 * 1024) if os.path.exists(video_path) else 0
-
-    # title_only：只发视频+标题，跳过 whisper
-    # text_only（抖音）：只发文案，不发视频
-    if mode == "title_only":
-        send_path = video_path
-        if file_size > 50:
-            compressed = _compress_video(video_path)
-            send_path = compressed if compressed else ""
-        if send_path:
-            converted = _ensure_h264(send_path)
-            if converted != send_path:
-                if send_path != video_path and os.path.exists(send_path):
-                    os.remove(send_path)
-                send_path = converted
-        if send_path:
-            import subprocess as sp
-            probe = sp.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
-                            "-show_entries", "stream=width,height",
-                            "-of", "csv=p=0", send_path],
-                           capture_output=True, text=True)
-            w, h = 0, 0
-            if probe.stdout.strip():
-                parts = probe.stdout.strip().split(",")
-                if len(parts) == 2:
-                    w, h = int(parts[0]), int(parts[1])
-            vid_caption = (f"视频标题：{title}\n\n" if title else "") + f"🔗 {clean_url}"
-            with open(send_path, "rb") as vf:
-                await msg.reply_video(video=vf, width=w or None, height=h or None,
-                                      caption=vid_caption[:1024], supports_streaming=True)
-            if send_path != video_path and os.path.exists(send_path):
-                os.remove(send_path)
-        if os.path.exists(video_path):
-            os.remove(video_path)
-        return
-
-    # bad.news 是成人内容，跳过文案提取，直接发视频
-    if is_badnews:
-        file_size = os.path.getsize(video_path) / (1024 * 1024)
-        send_path = video_path
-        if file_size > 50:
-            compressed = _compress_video(video_path)
-            if compressed:
-                send_path = compressed
-            else:
-                await msg.reply_text(
-                    f"⚠️ 视频过大（{file_size:.1f}MB），超过 200MB 不压缩，请到本地手动提取\n📁 {video_path}"
-                )
-                return
-        converted = _ensure_h264(send_path)
-        if converted != send_path:
-            if send_path != video_path and os.path.exists(send_path):
-                os.remove(send_path)
-            send_path = converted
-        import subprocess as sp
-        probe = sp.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
-                        "-show_entries", "stream=width,height",
-                        "-of", "csv=p=0", send_path],
-                       capture_output=True, text=True)
-        w, h = 0, 0
-        if probe.stdout.strip():
-            parts = probe.stdout.strip().split(",")
-            if len(parts) == 2:
-                w, h = int(parts[0]), int(parts[1])
-        with open(send_path, "rb") as vf:
-            await msg.reply_video(video=vf, width=w or None, height=h or None, supports_streaming=True)
-        if send_path != video_path and os.path.exists(send_path):
-            os.remove(send_path)
-        return
-
-    # text_only 模式：不需要下载视频，直接转文案后返回
-    if mode == "text_only":
-        await msg.reply_text("⏳ 提取文案中...")
-        # 用 yt-dlp 只下载音频转文案
-        audio_path = f"{SAVE_DIR}/audio_{abs(hash(clean_url))}.wav"
-        if is_douyin:
-            # 抖音先拿视频再提音频
-            pass  # 继续走下面的视频下载流程，发送前截断
-        # 非抖音走 yt-dlp 直接提音频
-        if not is_douyin and not is_badnews:
-            cookies = os.path.expanduser("~/x-cookies.txt")
-            cookie_args = ["--cookies", cookies] if os.path.exists(cookies) else []
-            subprocess.run(
-                ["yt-dlp", "--no-playlist"] + cookie_args +
-                ["-x", "--audio-format", "wav", "-o", audio_path, clean_url],
-                capture_output=True
-            )
-            if os.path.exists(audio_path):
-                subprocess.run(
-                    ["whisper", audio_path, "--language", "zh", "--model", "turbo",
-                     "--output_format", "txt", "--output_dir", SAVE_DIR,
-                     "--condition_on_previous_text", "False",
-                     "--no_speech_threshold", "0.8",
-                     "--logprob_threshold", "-0.5",
-                     "--compression_ratio_threshold", "2.0"],
-                    capture_output=True
-                )
-                txt_path = os.path.splitext(audio_path)[0] + ".txt"
-                transcript = ""
-                if os.path.exists(txt_path):
-                    with open(txt_path) as f:
-                        transcript = f.read().strip()
-                    transcript = clean_hallucination(transcript)
-                    os.remove(txt_path)
-                os.remove(audio_path)
-                if transcript:
-                    full_text = f"文案：\n{transcript}\n\n🔗 {clean_url}"
-                    while full_text:
-                        await msg.reply_text(full_text[:4000])
-                        full_text = full_text[4000:]
-                else:
-                    await msg.reply_text(f"❌ 未能提取到文案\n🔗 {clean_url}")
-                return
-            else:
-                await msg.reply_text(f"❌ 音频提取失败\n🔗 {clean_url}")
-                return
-
-    # text_only + 抖音/bad.news：视频已下载，提完文案后不发视频直接返回
-    if mode == "text_only":
-        if os.path.exists(video_path):
-            subprocess.run(
-                ["whisper", video_path, "--language", "zh", "--model", "turbo",
-                 "--output_format", "txt", "--output_dir", SAVE_DIR,
-                 "--condition_on_previous_text", "False",
-                 "--no_speech_threshold", "0.8",
-                 "--logprob_threshold", "-0.5",
-                 "--compression_ratio_threshold", "2.0"],
-                capture_output=True
-            )
-            txt_path = os.path.splitext(video_path)[0] + ".txt"
-            transcript = ""
-            if os.path.exists(txt_path):
-                with open(txt_path) as f:
-                    transcript = f.read().strip()
-                transcript = clean_hallucination(transcript)
-                os.remove(txt_path)
-            os.remove(video_path)
-            title_prefix = f"视频标题：{title}\n\n" if title else ""
-            if transcript:
-                full_text = title_prefix + f"文案：\n{transcript}\n\n🔗 {clean_url}"
-                while full_text:
-                    await msg.reply_text(full_text[:4000])
-                    full_text = full_text[4000:]
-            else:
-                await msg.reply_text(f"❌ 未能提取到文案\n🔗 {clean_url}")
-        return
-
-    # 所有平台：先截前15秒试探，无连贯语音就跳过全程 whisper
-    run_whisper = False
-    preview_path = video_path + "_preview.wav"
-    subprocess.run(
-        ["ffmpeg", "-y", "-i", video_path, "-t", "15", "-vn", "-ar", "16000", "-ac", "1", preview_path],
-        capture_output=True
-    )
-    if os.path.exists(preview_path):
-        subprocess.run(
-            ["whisper", preview_path, "--language", "zh",
-             "--output_format", "txt", "--output_dir", SAVE_DIR,
-             "--no_speech_threshold", "0.8", "--logprob_threshold", "-0.5"],
-            capture_output=True
-        )
-        prev_txt_path = preview_path.replace(".wav", ".txt")
-        preview_txt = ""
-        if os.path.exists(prev_txt_path):
-            with open(prev_txt_path) as f:
-                preview_txt = f.read().strip()
-            os.remove(prev_txt_path)
-        os.remove(preview_path)
-        if is_coherent(preview_txt):
-            run_whisper = True
-
-    if run_whisper:
-        # await msg.reply_text("🎙️ 转文案中（需1-2分钟）...")
-        subprocess.run(
-            ["whisper", video_path, "--language", "zh", "--model", "turbo",
-             "--output_format", "txt", "--output_dir", SAVE_DIR,
-             # 防幻觉参数
-             "--condition_on_previous_text", "False",
-             "--no_speech_threshold", "0.8",
-             "--logprob_threshold", "-0.5",
-             "--compression_ratio_threshold", "2.0"],
-            capture_output=True
-        )
-
-    txt_path = os.path.splitext(video_path)[0] + ".txt"
-    transcript = ""
-    if os.path.exists(txt_path):
-        with open(txt_path) as f:
-            transcript = f.read().strip()
-        transcript = clean_hallucination(transcript)
-        os.remove(txt_path)
-
-    file_size = os.path.getsize(video_path) / (1024 * 1024)
-
-    # 超过800字才 AI 梳理：梳理后文案随视频发，原文案单独发
-    need_analysis = bool(transcript) and len(transcript) > 800
-    analysis = ""
-    if need_analysis:
-        analysis = analyze_transcript(transcript, title)
-
     title_prefix = f"视频标题：{title}\n\n" if title else ""
     url_suffix = f"\n\n🔗 {clean_url}"
-    # 视频 caption：尽量塞 标题 + 梳理 + 链接；放不下就只放 标题 + 链接，梳理走独立消息
+
+    if mode == "title_only":
+        await _send_video(msg, video_path, title_prefix.rstrip() + url_suffix, clean_url)
+        if os.path.exists(video_path):
+            os.remove(video_path)
+        return
+
+    if is_badnews:
+        await _send_video(msg, video_path, "", clean_url)
+        if os.path.exists(video_path):
+            os.remove(video_path)
+        return
+
+    if mode == "text_only":
+        transcript = await _run_whisper(video_path)
+        if os.path.exists(video_path):
+            os.remove(video_path)
+        if transcript:
+            full_text = title_prefix + f"文案：\n{transcript}{url_suffix}"
+            while full_text:
+                await msg.reply_text(full_text[:4000])
+                full_text = full_text[4000:]
+        else:
+            await msg.reply_text(f"❌ 未能提取到文案\n🔗 {clean_url}")
+        return
+
+    transcript = await _maybe_transcript(video_path)
+    need_analysis = bool(transcript) and len(transcript) > 800
+    analysis = analyze_transcript(transcript, title) if need_analysis else ""
+
     caption_with_summary = ""
     if need_analysis and analysis:
         candidate = title_prefix + f"📝 AI 梳理：\n\n{analysis}" + url_suffix
         if len(candidate) <= 1024:
             caption_with_summary = candidate
-    if caption_with_summary:
-        vid_caption = caption_with_summary
-    else:
-        vid_caption = title_prefix.rstrip() + url_suffix
+    vid_caption = caption_with_summary if caption_with_summary else (title_prefix.rstrip() + url_suffix)
     if len(vid_caption) > 1024:
         vid_caption = vid_caption[:1023] + "…"
 
-    # 发视频
-    send_path = video_path
-    if file_size > 50:
-        compressed = _compress_video(video_path)
-        if compressed:
-            send_path = compressed
-        else:
-            await msg.reply_text(
-                f"⚠️ 视频过大（{file_size:.1f}MB），超过 200MB 不压缩，请到本地手动提取\n📁 {video_path}"
-            )
-            send_path = ""
-    if send_path:
-        converted = _ensure_h264(send_path)
-        if converted != send_path:
-            if send_path != video_path and os.path.exists(send_path):
-                os.remove(send_path)
-            send_path = converted
-    if send_path:
-        import subprocess as sp
-        probe = sp.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
-                        "-show_entries", "stream=width,height",
-                        "-of", "csv=p=0", send_path],
-                       capture_output=True, text=True)
-        w, h = 0, 0
-        if probe.stdout.strip():
-            parts = probe.stdout.strip().split(",")
-            if len(parts) == 2:
-                w, h = int(parts[0]), int(parts[1])
-        with open(send_path, "rb") as vf:
-            await msg.reply_video(video=vf, width=w or None, height=h or None,
-                                              caption=vid_caption, supports_streaming=True)
-        if send_path != video_path and os.path.exists(send_path):
-            os.remove(send_path)
+    await _send_video(msg, video_path, vid_caption, clean_url)
+    if os.path.exists(video_path):
+        os.remove(video_path)
 
-    # 文案单独发：梳理结果（仅当没塞进 caption 时）→ 原文案，都是独立消息
     if need_analysis and analysis:
-        # 梳理已经在 caption 里就跳过；否则独立发
         if not caption_with_summary:
-            summary_text = title_prefix + f"📝 AI 梳理：\n\n{analysis}\n\n🔗 {clean_url}"
+            summary_text = title_prefix + f"📝 AI 梳理：\n\n{analysis}{url_suffix}"
             while summary_text:
                 await msg.reply_text(summary_text[:4000])
                 summary_text = summary_text[4000:]
-        # 再发原文案
-        full_text = title_prefix + f"原文案：\n{transcript}\n\n🔗 {clean_url}"
+        full_text = title_prefix + f"原文案：\n{transcript}{url_suffix}"
         while full_text:
             await msg.reply_text(full_text[:4000])
             full_text = full_text[4000:]
     elif need_analysis and not analysis:
         await msg.reply_text("⚠️ AI 梳理失败，请检查 Ollama 是否运行")
-        full_text = title_prefix + f"文案：\n{transcript}\n\n🔗 {clean_url}"
+        full_text = title_prefix + f"文案：\n{transcript}{url_suffix}"
         while full_text:
             await msg.reply_text(full_text[:4000])
             full_text = full_text[4000:]
     elif transcript:
-        # 不需要梳理（<800字），直接发文案
-        full_text = title_prefix + f"文案：\n{transcript}\n\n🔗 {clean_url}"
+        full_text = title_prefix + f"文案：\n{transcript}{url_suffix}"
         while full_text:
             await msg.reply_text(full_text[:4000])
             full_text = full_text[4000:]
