@@ -154,7 +154,7 @@ def webpage_screenshot(url, save_path_prefix, max_segments=8):
                 crop = full_img.crop((0, top, fw, bottom))
                 seg_path = f"{save_path_prefix}_{idx+1}.png"
                 crop.save(seg_path)
-                paths.insert(idx, seg_path)
+                paths.append(seg_path)
                 idx += 1
                 if idx >= max_segments:
                     break
