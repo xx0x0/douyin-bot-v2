@@ -1164,10 +1164,9 @@ async def _handle_generic_ytdlp(msg, clean_url: str, video_path: str, is_x: bool
     title = ""
 
     if is_x:
-        subprocess.run(
-            ["yt-dlp", "--no-playlist", "--write-info-json", "--skip-download"]
-            + cookie_args + ["-o", f"{SAVE_DIR}/xinfo", clean_url],
-            capture_output=True
+        await _run_subprocess(
+            "yt-dlp", "--no-playlist", "--write-info-json", "--skip-download",
+            *cookie_args, "-o", f"{SAVE_DIR}/xinfo", clean_url,
         )
         json_files = glob.glob(f"{SAVE_DIR}/xinfo*.json")
         if json_files:
