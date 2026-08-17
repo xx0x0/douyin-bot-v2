@@ -311,8 +311,22 @@ def is_coherent(text):
     en_words = re.findall(r'[a-zA-Z]{3,}', text)
     return zh > 15 or len(en_words) > 5
 
-def analyze_transcript(transcript, title):
+def _call_ollama(prompt: str, timeout: int = 120) -> str:
     import urllib.request, json as _json
+    data = _json.dumps({"model": "qwen2.5:7b", "prompt": prompt, "stream": False}).encode()
+    req = urllib.request.Request(
+        "http://localhost:11434/api/generate",
+        data=data,
+        headers={"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return _json.loads(r.read()).get("response", "").strip()
+    except:
+        return ""
+
+
+def analyze_transcript(transcript, title):
     prompt = f"""你是内容提炼助手，严格基于原文内容，按以下格式输出：
 
 **🎯 核心结论**
@@ -334,22 +348,11 @@ def analyze_transcript(transcript, title):
 
 标题：{title}
 文案：{transcript}"""
-    data = _json.dumps({"model": "qwen2.5:7b", "prompt": prompt, "stream": False}).encode()
-    req = urllib.request.Request(
-        "http://localhost:11434/api/generate",
-        data=data,
-        headers={"Content-Type": "application/json"}
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=120) as r:
-            return _json.loads(r.read()).get("response", "")
-    except:
-        return ""
+    return _call_ollama(prompt)
 
 
 def analyze_brief(text, title):
     """简短梳理：3-5 句话核心要点。专有名词必须原样保留，便于复制搜索。"""
-    import urllib.request, json as _json
     prompt = f"""基于正文写 3-5 句要点，简洁。
 
 强制规则：
@@ -361,17 +364,7 @@ def analyze_brief(text, title):
 
 标题：{title}
 正文：{text}"""
-    data = _json.dumps({"model": "qwen2.5:7b", "prompt": prompt, "stream": False}).encode()
-    req = urllib.request.Request(
-        "http://localhost:11434/api/generate",
-        data=data,
-        headers={"Content-Type": "application/json"}
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=120) as r:
-            return _json.loads(r.read()).get("response", "").strip()
-    except:
-        return ""
+    return _call_ollama(prompt)
 
 
 class SafeMessage:
