@@ -905,6 +905,303 @@ def _compress_video(src: str, target_mb: float = 49.0, max_src_mb: float = 200.0
     return ""
 
 
+async def _run_subprocess(*args) -> subprocess.CompletedProcess:
+    """在线程池里跑阻塞 subprocess，避免阻塞事件循环"""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        None, lambda: subprocess.run(list(args), capture_output=True, text=True)
+    )
+
+
+def _get_video_dimensions(path: str):
+    """用 ffprobe 读取视频宽高，返回 (w, h)，失败返回 (0, 0)"""
+    import subprocess as sp
+    probe = sp.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height", "-of", "csv=p=0", path],
+        capture_output=True, text=True
+    )
+    if probe.stdout.strip():
+        parts = probe.stdout.strip().split(",")
+        if len(parts) == 2:
+            try:
+                return int(parts[0]), int(parts[1])
+            except ValueError:
+                pass
+    return 0, 0
+
+
+async def _send_video(msg, video_path: str, caption: str, clean_url: str):
+    """压缩/转码后发送视频，发完清理临时文件"""
+    file_size = os.path.getsize(video_path) / (1024 * 1024)
+    send_path = video_path
+    if file_size > 50:
+        compressed = _compress_video(video_path)
+        if compressed:
+            send_path = compressed
+        else:
+            await msg.reply_text(
+                f"⚠️ 视频过大（{file_size:.1f}MB），超过 200MB 不压缩，请到本地手动提取\n📁 {video_path}"
+            )
+            return
+    converted = _ensure_h264(send_path)
+    if converted != send_path:
+        if send_path != video_path and os.path.exists(send_path):
+            os.remove(send_path)
+        send_path = converted
+    w, h = _get_video_dimensions(send_path)
+    with open(send_path, "rb") as vf:
+        await msg.reply_video(video=vf, width=w or None, height=h or None,
+                              caption=caption[:1024], supports_streaming=True)
+    if send_path != video_path and os.path.exists(send_path):
+        os.remove(send_path)
+
+
+async def _run_whisper(target_path: str) -> str:
+    """对 target_path 跑 whisper，返回转录文本，在线程池执行不阻塞事件循环"""
+    await _run_subprocess(
+        "whisper", target_path, "--language", "zh", "--model", "turbo",
+        "--output_format", "txt", "--output_dir", SAVE_DIR,
+        "--condition_on_previous_text", "False",
+        "--no_speech_threshold", "0.8",
+        "--logprob_threshold", "-0.5",
+        "--compression_ratio_threshold", "2.0",
+    )
+    txt_path = os.path.splitext(target_path)[0] + ".txt"
+    if not os.path.exists(txt_path):
+        return ""
+    with open(txt_path) as f:
+        text = f.read().strip()
+    os.remove(txt_path)
+    return clean_hallucination(text)
+
+
+async def _maybe_transcript(video_path: str) -> str:
+    """先截前15秒探有无语音，有才跑全程 whisper"""
+    preview_path = video_path + "_preview.wav"
+    await _run_subprocess(
+        "ffmpeg", "-y", "-i", video_path, "-t", "15",
+        "-vn", "-ar", "16000", "-ac", "1", preview_path,
+    )
+    if not os.path.exists(preview_path):
+        return ""
+    await _run_subprocess(
+        "whisper", preview_path, "--language", "zh",
+        "--output_format", "txt", "--output_dir", SAVE_DIR,
+        "--no_speech_threshold", "0.8", "--logprob_threshold", "-0.5",
+    )
+    prev_txt = preview_path.replace(".wav", ".txt")
+    preview_text = ""
+    if os.path.exists(prev_txt):
+        with open(prev_txt) as f:
+            preview_text = f.read().strip()
+        os.remove(prev_txt)
+    os.remove(preview_path)
+    if not is_coherent(preview_text):
+        return ""
+    return await _run_whisper(video_path)
+
+
+async def _handle_xiaohongshu_note(msg, clean_url: str):
+    """小红书图文帖处理"""
+    await msg.reply_text("⏳ 处理中，请稍候...")
+    info = None
+    for _attempt in range(3):
+        try:
+            result = get_douyin_download_link(clean_url)
+            info = json.loads(result)
+            if info.get("status") != "error":
+                break
+            print(f"[抖音图文提取重试 {_attempt+1}/3] {info.get('error')}")
+        except Exception as e:
+            print(f"[抖音图文提取重试 {_attempt+1}/3] {e}")
+        if _attempt < 2:
+            await asyncio.sleep(2 * (_attempt + 1))
+    try:
+        if info is None or info.get("status") == "error":
+            await msg.reply_text(f"❌ 提取失败：{info.get('error', '未知错误') if info else '网络异常'}")
+            return
+        title = info.get("title", "")
+        images = info.get("images", [])
+        if not images:
+            await msg.reply_text(f"❌ 未能提取到图片，请手动保存\n🔗 {clean_url}")
+            return
+        caption_text = (f"{title}\n\n" if title else "") + f"🔗 {clean_url}"
+        photo_data = []
+        for img_url in images:
+            try:
+                r = requests.get(img_url, timeout=30,
+                                 headers={"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X)"})
+                if r.status_code == 200:
+                    photo_data.append(r.content)
+            except Exception as img_e:
+                print(f"[图片下载失败] {img_url}: {img_e}")
+        if not photo_data:
+            await msg.reply_text(f"❌ 未能下载到图片\n🔗 {clean_url}")
+            return
+        media_group = [InputMediaPhoto(media=d) for d in photo_data]
+        media_group[-1] = InputMediaPhoto(media=photo_data[-1], caption=caption_text[:1024])
+        await msg.reply_media_group(media=media_group)
+    except Exception as e:
+        print(f"[ERROR 图文] {e}")
+        await msg.reply_text(f"❌ 图文提取失败：{e}\n🔗 {clean_url}")
+
+
+async def _handle_qqnews(msg, clean_url: str, video_path: str) -> bool:
+    """QQ新闻视频下载，成功返回 True，失败已回复消息返回 False"""
+    try:
+        from qq_news_extractor import download_qq_news_video
+        ok = await download_qq_news_video(clean_url, video_path)
+        if not ok or not os.path.exists(video_path) or os.path.getsize(video_path) == 0:
+            await _process_article(msg, clean_url)
+            return False
+        return True
+    except Exception as e:
+        print(f"[ERROR qqnews] {e}")
+        import traceback; traceback.print_exc()
+        await _process_article(msg, clean_url)
+        return False
+
+
+async def _handle_badnews(msg, clean_url: str, video_path: str) -> bool:
+    """bad.news 视频下载，成功返回 True"""
+    dl_url = clean_url
+    if "/ajax/topic/" not in clean_url:
+        m = re.search(r'/topic/(\d+)', clean_url)
+        if m:
+            dl_url = f"https://bad.news/ajax/topic/{m.group(1)}/download"
+    cookie_dict = {}
+    for part in BADNEWS_COOKIES.split(';'):
+        if '=' in part:
+            k, v = part.strip().split('=', 1)
+            cookie_dict[k.strip()] = v.strip()
+    page_hdrs = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                 'referer': 'https://bad.news/'}
+    dl_hdrs = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    try:
+        resp = requests.get(dl_url, cookies=cookie_dict, headers=page_hdrs, timeout=30)
+        vid_match = re.search(r'content="\d+;\s*URL=([^"]+)"', resp.text)
+        if not vid_match:
+            vid_match = re.search(r'href="(https://[^"]+\.mp4[^"]*)"', resp.text)
+        if not vid_match:
+            await msg.reply_text("❌ 无法提取视频链接，cookies 可能已过期")
+            return False
+        video_dl_url = vid_match.group(1)
+        r2 = requests.get(video_dl_url, headers=dl_hdrs, stream=True, timeout=60)
+        if r2.status_code != 200:
+            await msg.reply_text(f"❌ 视频下载失败：HTTP {r2.status_code}")
+            return False
+        with open(video_path, 'wb') as f:
+            for chunk in r2.iter_content(chunk_size=65536):
+                f.write(chunk)
+        if os.path.getsize(video_path) == 0:
+            os.remove(video_path)
+            await msg.reply_text("❌ CDN 返回空文件，请稍后重试")
+            return False
+        return True
+    except Exception as e:
+        if os.path.exists(video_path):
+            os.remove(video_path)
+        await msg.reply_text(f"❌ bad.news 下载失败：{e}")
+        return False
+
+
+async def _handle_douyin(msg, clean_url: str, video_path: str):
+    """抖音视频下载，返回 (success: bool, title: str)"""
+    video_url = ""
+    title = ""
+    _ytdlp_fallback = False
+    for _attempt in range(3):
+        try:
+            result = get_douyin_download_link(clean_url)
+            info = json.loads(result)
+            video_url = info.get("video_url") or info.get("download_url") or info.get("url", "")
+            title = info.get("title") or info.get("desc", "")
+            if video_url:
+                break
+            err_detail = info.get("error", "")
+            print(f"[抖音提取重试 {_attempt+1}/3] 无视频链接 mcp={err_detail or info.get('status', '?')}")
+        except Exception as e:
+            print(f"[抖音提取重试 {_attempt+1}/3] {e}")
+        if _attempt < 2:
+            await asyncio.sleep(2 * (_attempt + 1))
+        elif not video_url:
+            print("[抖音 MCP 全部失败，尝试 yt-dlp 兜底]")
+            douyin_cookies = os.path.expanduser("~/douyin-cookies.txt")
+            douyin_cookie_args = ["--cookies", douyin_cookies] if os.path.exists(douyin_cookies) else []
+            dl_fb = subprocess.run(
+                ["yt-dlp", "--no-playlist"] + douyin_cookie_args + ["-o", video_path, clean_url],
+                capture_output=True, text=True
+            )
+            if dl_fb.returncode == 0 and os.path.exists(video_path) and os.path.getsize(video_path) > 0:
+                _ytdlp_fallback = True
+            else:
+                print(f"[yt-dlp 兜底失败] {dl_fb.stderr[-200:]}")
+                await _process_article(msg, clean_url)
+                return False, title
+    if not video_url and not _ytdlp_fallback:
+        await _process_article(msg, clean_url)
+        return False, title
+    if not _ytdlp_fallback:
+        dl = subprocess.run(
+            ["yt-dlp", "--no-playlist", "-o", video_path, video_url],
+            capture_output=True, text=True
+        )
+        if dl.returncode != 0 or not os.path.exists(video_path):
+            if os.path.exists(video_path):
+                os.remove(video_path)
+            await msg.reply_text(f"❌ 抖音视频下载失败：{dl.stderr[-300:] if dl.stderr else 'unknown'}")
+            return False, title
+    if os.path.getsize(video_path) == 0:
+        os.remove(video_path)
+        await msg.reply_text("❌ CDN 返回空文件，请稍后重试")
+        return False, title
+    return True, title
+
+
+async def _handle_generic_ytdlp(msg, clean_url: str, video_path: str, is_x: bool):
+    """通用 yt-dlp 下载（X/YouTube/Bilibili 等），返回 (success: bool, title: str)"""
+    cookies = os.path.expanduser("~/x-cookies.txt")
+    cookie_args = ["--cookies", cookies] if os.path.exists(cookies) else []
+    title = ""
+
+    if is_x:
+        subprocess.run(
+            ["yt-dlp", "--no-playlist", "--write-info-json", "--skip-download"]
+            + cookie_args + ["-o", f"{SAVE_DIR}/xinfo", clean_url],
+            capture_output=True
+        )
+        json_files = glob.glob(f"{SAVE_DIR}/xinfo*.json")
+        if json_files:
+            with open(json_files[0]) as f:
+                info = json.loads(f.read())
+            title = info.get("description") or info.get("title", "")
+            os.remove(json_files[0])
+        try:
+            from x_long_tweet import is_long_tweet, fetch_full_tweet_text
+            if is_long_tweet(clean_url):
+                full = await fetch_full_tweet_text(clean_url)
+                if full and len(full) > len(title):
+                    title = full
+        except Exception as e:
+            print(f"[long tweet fetch failed] {e}")
+
+    dl = subprocess.run(
+        ["yt-dlp", "--no-playlist"] + cookie_args + ["-o", video_path, clean_url],
+        capture_output=True, text=True
+    )
+    if dl.returncode != 0:
+        if any(h in clean_url for h in VIDEO_ONLY):
+            print(f"[silent skip] {clean_url} download failed: {dl.stderr[-200:]}")
+            return False, title
+        try:
+            await _process_article(msg, clean_url)
+        except Exception as e:
+            await msg.reply_text(f"❌ 下载失败：{dl.stderr[-300:]}")
+        return False, title
+    return True, title
+
+
 async def _process(msg, clean_url: str, mode: str = "default"):
     # 图文提取
     if "/note/" in clean_url:
