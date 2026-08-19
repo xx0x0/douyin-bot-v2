@@ -1286,6 +1286,10 @@ async def _process(msg, clean_url: str, mode: str = "default"):
         return
 
     transcript = await _maybe_transcript(video_path)
+    if transcript and archive_clip:
+        await asyncio.to_thread(
+            archive_clip, clean_url, title, transcript,
+            getattr(msg, "text", "") or "", getattr(msg, "message_id", None))
     need_analysis = bool(transcript) and len(transcript) > 800
     analysis = analyze_transcript(transcript, title) if need_analysis else ""
 
