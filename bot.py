@@ -1075,7 +1075,14 @@ async def _handle_xiaohongshu_note(msg, clean_url: str):
                 r = requests.get(img_url, timeout=30,
                                  headers={"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X)"})
                 if r.status_code == 200:
-                    photo_data.append(r.content)
+                    content = r.content
+                    # 兜底抓到的是 webp，Telegram 图片相册要 JPEG
+                    if "webp" in (r.headers.get("content-type") or "") or ".webp" in img_url:
+                        from io import BytesIO
+                        buf = BytesIO()
+                        Image.open(BytesIO(content)).convert("RGB").save(buf, "JPEG", quality=90)
+                        content = buf.getvalue()
+                    photo_data.append(content)
             except Exception as img_e:
                 print(f"[图片下载失败] {img_url}: {img_e}")
         if not photo_data:
