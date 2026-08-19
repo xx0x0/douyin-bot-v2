@@ -1272,6 +1272,10 @@ async def _process(msg, clean_url: str, mode: str = "default"):
         transcript = await _run_whisper(video_path)
         if os.path.exists(video_path):
             os.remove(video_path)
+        if transcript and archive_clip:
+            await asyncio.to_thread(
+                archive_clip, clean_url, title, transcript,
+                getattr(msg, "text", "") or "", getattr(msg, "message_id", None))
         if transcript:
             full_text = title_prefix + f"文案：\n{transcript}{url_suffix}"
             while full_text:
