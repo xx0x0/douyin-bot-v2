@@ -1011,6 +1011,31 @@ async def _maybe_transcript(video_path: str) -> str:
     return await _run_whisper(video_path)
 
 
+def douyin_note_gallery(url):
+    """Playwright 打开抖音图文分享页抓轮播图（移动端 feed API 失效后的兜底）。
+    返回 (标题, 图片URL列表)。轮播图 class 为 gallery-container__carousel__image，
+    推荐流图片是 related-*/card__cover，不会混入。"""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            viewport={"width": 500, "height": 900},
+            user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) "
+                       "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
+        )
+        page = context.new_page()
+        page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        page.wait_for_timeout(5000)
+        title = re.sub(r"\s*-\s*抖音$", "", page.title() or "").strip()
+        srcs = page.evaluate(
+            "() => Array.from(document.querySelectorAll('img.gallery-container__carousel__image'))"
+            ".map(i => i.currentSrc || i.src).filter(Boolean)"
+        )
+        browser.close()
+    seen = set()
+    urls = [u for u in srcs if not (u in seen or seen.add(u))]
+    return title, urls
+
+
 async def _handle_xiaohongshu_note(msg, clean_url: str):
     """小红书图文帖处理"""
     await msg.reply_text("⏳ 处理中，请稍候...")
@@ -1027,11 +1052,19 @@ async def _handle_xiaohongshu_note(msg, clean_url: str):
         if _attempt < 2:
             await asyncio.sleep(2 * (_attempt + 1))
     try:
-        if info is None or info.get("status") == "error":
-            await msg.reply_text(f"❌ 提取失败：{info.get('error', '未知错误') if info else '网络异常'}")
-            return
-        title = info.get("title", "")
-        images = info.get("images", [])
+        title = ""
+        images = []
+        if info is not None and info.get("status") != "error":
+            title = info.get("title", "")
+            images = info.get("images", [])
+        if not images:
+            print("[图文 MCP 无图片，playwright 兜底]")
+            try:
+                loop = asyncio.get_event_loop()
+                pw_title, images = await loop.run_in_executor(None, douyin_note_gallery, clean_url)
+                title = title or pw_title
+            except Exception as pw_e:
+                print(f"[图文 playwright 兜底失败] {pw_e}")
         if not images:
             await msg.reply_text(f"❌ 未能提取到图片，请手动保存\n🔗 {clean_url}")
             return
