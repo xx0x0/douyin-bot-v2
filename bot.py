@@ -19,6 +19,15 @@ ALLOWED_USERS = {int(x) for x in os.environ["ALLOWED_USER"].split(",") if x.stri
 ALLOWED_GROUPS = {int(x) for x in os.environ["ALLOWED_GROUP"].split(",") if x.strip()}
 BOT_OWNER = int(os.environ.get("BOT_OWNER", "0")) or (min(ALLOWED_USERS) if ALLOWED_USERS else 0)
 
+# ---- pkb 归档（失败不影响 bot 主流程）----
+PKB_DIR = os.environ.get("PKB_DIR", os.path.expanduser("~/pkb"))
+sys.path.insert(0, os.path.join(PKB_DIR, "tools"))
+try:
+    from telegram_archive import archive_clip
+except Exception as _e:
+    archive_clip = None
+    print(f"[pkb] 归档模块未加载，本次不落盘: {_e}")
+
 PLATFORMS = [
     "douyin.com", "v.douyin.com", "tiktok.com", "xiaohongshu.com",
     "xhslink.com", "twitter.com", "x.com", "youtube.com", "youtu.be",
